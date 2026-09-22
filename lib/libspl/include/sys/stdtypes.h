@@ -22,8 +22,15 @@ typedef unsigned char		uchar_t;
 typedef unsigned short		ushort_t;
 typedef unsigned int		uint_t;
 typedef unsigned long		ulong_t;
+/*
+ * NetBSD declares these in <sys/types.h> for XDR, as exact-width types.
+ * They are the same width here, but a second typedef of a different type
+ * is still a redefinition, so leave them to the system header.
+ */
+#ifndef	__NetBSD__
 typedef unsigned long long	u_longlong_t;
 typedef long long		longlong_t;
+#endif
 
 typedef longlong_t		offset_t;
 typedef u_longlong_t		u_offset_t;
@@ -33,7 +40,9 @@ typedef longlong_t		diskaddr_t;
 typedef ulong_t			pgcnt_t;	/* number of pages */
 typedef long			spgcnt_t;	/* signed number of pages */
 
+#ifndef	__NetBSD__
 typedef short			pri_t;
+#endif
 typedef ushort_t		o_mode_t;	/* old file attribute type */
 
 typedef int			major_t;
