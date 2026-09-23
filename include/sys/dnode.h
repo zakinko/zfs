@@ -627,7 +627,7 @@ extern dnode_sums_t dnode_sums;
 		(void) strlcpy(__db_buf, "mdn", sizeof (__db_buf));	\
 	else \
 		(void) snprintf(__db_buf, sizeof (__db_buf), "%lld", \
-		    (u_longlong_t)__db_obj);\
+		    (unsigned long long)__db_obj);\
 	dprintf_ds((dn)->dn_objset->os_dsl_dataset, "obj=%s " fmt, \
 	    __db_buf, __VA_ARGS__); \
 	} \

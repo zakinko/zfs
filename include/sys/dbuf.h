@@ -480,11 +480,11 @@ boolean_t dbuf_is_l2cacheable(dmu_buf_impl_t *db, blkptr_t *db_bp);
 		(void) strlcpy(__db_buf, "mdn", sizeof (__db_buf));	\
 	else \
 		(void) snprintf(__db_buf, sizeof (__db_buf), "%lld", \
-		    (u_longlong_t)__db_obj); \
+		    (unsigned long long)__db_obj); \
 	dprintf_ds((dbuf)->db_objset->os_dsl_dataset, \
 	    "obj=%s lvl=%u blkid=%lld " fmt, \
 	    __db_buf, (dbuf)->db_level, \
-	    (u_longlong_t)(dbuf)->db_blkid, __VA_ARGS__); \
+	    (unsigned long long)(dbuf)->db_blkid, __VA_ARGS__); \
 	} \
 } while (0)
 
