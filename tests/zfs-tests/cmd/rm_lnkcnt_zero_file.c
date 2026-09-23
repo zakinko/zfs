@@ -127,7 +127,9 @@ main(int argc, char **argv)
 		exit(-1);
 	}
 
+#ifdef	HAVE_PTHREAD_SETCONCURRENCY
 	(void) pthread_setconcurrency(4);	/* 3 threads + main */
+#endif
 	(void) pthread_create(&tid, NULL, mover, NULL);
 	(void) pthread_create(&tid, NULL, cleaner, NULL);
 	(void) pthread_create(&tid, NULL, writer, (void *) &fd);

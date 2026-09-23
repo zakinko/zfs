@@ -3,13 +3,21 @@ scripts_zfs_tests_bindir = $(datadir)/$(PACKAGE)/zfs-tests/bin
 
 
 scripts_zfs_tests_bin_PROGRAMS  = %D%/chg_usr_exec
+if HAVE_COPY_FILE_RANGE
 scripts_zfs_tests_bin_PROGRAMS += %D%/clonefile
 scripts_zfs_tests_bin_PROGRAMS += %D%/clone_mmap_cached
 scripts_zfs_tests_bin_PROGRAMS += %D%/clone_mmap_write
+endif
 scripts_zfs_tests_bin_PROGRAMS += %D%/cp_files
 scripts_zfs_tests_bin_PROGRAMS += %D%/ctime
 scripts_zfs_tests_bin_PROGRAMS += %D%/dir_rd_update
+if BUILD_LINUX
 scripts_zfs_tests_bin_PROGRAMS += %D%/dosmode_readonly_write
+else
+if HAVE_UF_READONLY
+scripts_zfs_tests_bin_PROGRAMS += %D%/dosmode_readonly_write
+endif
+endif
 scripts_zfs_tests_bin_PROGRAMS += %D%/get_diff
 scripts_zfs_tests_bin_PROGRAMS += %D%/rename_dir
 scripts_zfs_tests_bin_PROGRAMS += %D%/suid_write_to_file
@@ -34,7 +42,9 @@ scripts_zfs_tests_bin_PROGRAMS += %D%/crypto_test
 %C%_crypto_test_SOURCES = %D%/crypto_test.c
 %C%_crypto_test_LDADD = libzpool.la
 
+if HAVE_COPY_FILE_RANGE
 scripts_zfs_tests_bin_PROGRAMS += %D%/clone_after_trunc
+endif
 
 if WANT_DEVNAME2DEVID
 scripts_zfs_tests_bin_PROGRAMS += %D%/devname2devid

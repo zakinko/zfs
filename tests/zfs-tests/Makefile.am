@@ -18,7 +18,9 @@ scripts_zfs_tests_functional_vdev_diskdir = $(datadir)/$(PACKAGE)/zfs-tests/test
 scripts_zfs_tests_functional_vdev_disk_PROGRAMS = %D%/tests/functional/vdev_disk/page_alignment
 
 scripts_zfs_tests_functional_cp_filesdir = $(datadir)/$(PACKAGE)/zfs-tests/tests/functional/cp_files
+if HAVE_LSEEK_SEEK_HOLE
 scripts_zfs_tests_functional_cp_files_PROGRAMS = %D%/tests/functional/cp_files/seekflood
+endif
 
 if BUILD_LINUX
 scripts_zfs_tests_functional_tmpfiledir = $(datadir)/$(PACKAGE)/zfs-tests/tests/functional/tmpfile
