@@ -17,6 +17,14 @@
 #ifndef _SYS_DKIO_H
 #define	_SYS_DKIO_H
 
+#ifdef	SYSTEM_BSD
+/*
+ * Only libefi wants the illumos definitions below, and it is built on
+ * Linux alone; here <sys/dkio.h> belongs to the system.
+ */
+#include_next <sys/dkio.h>
+#else
+
 
 
 #include <sys/dklabel.h>	/* Needed for NDKMAP define */
@@ -470,5 +478,7 @@ typedef struct dk_updatefw_32 {
 #ifdef	__cplusplus
 }
 #endif
+
+#endif	/* SYSTEM_BSD */
 
 #endif /* _SYS_DKIO_H */

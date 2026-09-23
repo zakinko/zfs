@@ -17,7 +17,15 @@
 #ifndef _SOL_SYS_INTTYPES_H
 #define	_SOL_SYS_INTTYPES_H
 
+#ifdef	SYSTEM_BSD
+/*
+ * <inttypes.h> reaches back here for the integer types, so standing in
+ * for the system header would leave it with none.
+ */
+#include_next <sys/inttypes.h>
+#else
 #include <inttypes.h>
+#endif
 
 #define	_INT64_TYPE
 
