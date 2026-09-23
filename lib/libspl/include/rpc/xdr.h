@@ -28,7 +28,9 @@
 #undef xdr_control
 #endif
 
+#ifndef	XDR_GET_BYTES_AVAIL
 #define	XDR_GET_BYTES_AVAIL 1
+#endif
 
 #ifndef HAVE_XDR_BYTESREC
 struct xdr_bytesrec {

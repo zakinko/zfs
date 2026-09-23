@@ -197,6 +197,7 @@ dir_is_empty_readdir(const char *dirname)
 static boolean_t
 dir_is_empty(const char *dirname)
 {
+#ifdef	HAVE_STRUCT_STATFS
 	struct statfs64 st;
 
 	/*
@@ -207,6 +208,10 @@ dir_is_empty(const char *dirname)
 	    (st.f_type != ZFS_SUPER_MAGIC)) {
 		return (dir_is_empty_readdir(dirname));
 	}
+#else
+	/* Without struct statfs there is nothing to shortcut on. */
+	return (dir_is_empty_readdir(dirname));
+#endif
 
 	/*
 	 * At this point, we know the provided path is on a ZFS
