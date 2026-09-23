@@ -17,6 +17,11 @@ libzfs_core_la_SOURCES += \
 	%D%/os/linux/libzfs_core_ioctl.c
 endif
 
+if BUILD_BSD
+libzfs_core_la_SOURCES += \
+	%D%/os/bsd/libzfs_core_ioctl.c
+endif
+
 if BUILD_FREEBSD
 libzfs_core_la_CPPFLAGS += -Iinclude/os/freebsd/zfs
 

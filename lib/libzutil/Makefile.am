@@ -29,6 +29,12 @@ libzutil_la_SOURCES += \
 	%D%/os/freebsd/zutil_import_os.c
 endif
 
+if BUILD_BSD
+libzutil_la_SOURCES += \
+	%D%/os/bsd/zutil_device_path_os.c \
+	%D%/os/bsd/zutil_import_os.c
+endif
+
 libzutil_la_LIBADD = \
 	libavl.la \
 	libnvpair.la \
@@ -41,3 +47,4 @@ libzutil_la_LIBADD += \
 endif
 
 libzutil_la_LIBADD += -lm $(LIBBLKID_LIBS) $(LIBUDEV_LIBS)
+libzutil_la_LIBADD += $(AIO_H_LIBS) $(LTLIBINTL)

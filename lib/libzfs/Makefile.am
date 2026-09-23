@@ -33,6 +33,14 @@ dist_libzfs_la_SOURCES += \
 	%D%/os/freebsd/libzfs_zmount.c
 endif
 
+if BUILD_BSD
+dist_libzfs_la_SOURCES += \
+	%D%/os/bsd/libzfs_compat.c \
+	%D%/os/bsd/libzfs_share_nfs.c \
+	%D%/os/bsd/libzfs_share_smb.c \
+	%D%/os/bsd/libzfs_zmount.c
+endif
+
 if BUILD_LINUX
 dist_libzfs_la_SOURCES += \
 	%D%/os/linux/libzfs_mount_os.c \
