@@ -33,6 +33,12 @@ AM_CFLAGS += -include $(top_srcdir)/include/os/freebsd/spl/sys/ccompile.h
 AM_CFLAGS += -I/usr/include -I/usr/local/include
 endif
 
+if BUILD_BSD
+AM_CFLAGS += -fPIC -Wno-unknown-pragmas -Wno-enum-conversion
+AM_CFLAGS += -include $(top_srcdir)/include/os/bsd/spl/sys/ccompile.h
+AM_CFLAGS += -I/usr/include -I/usr/pkg/include
+endif
+
 AM_CPPFLAGS += -D_GNU_SOURCE
 AM_CPPFLAGS += -D_REENTRANT
 AM_CPPFLAGS += -D_FILE_OFFSET_BITS=64
