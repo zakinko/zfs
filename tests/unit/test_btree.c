@@ -351,8 +351,9 @@ static MunitResult
 test_btree_insert_duplicate(const MunitParameter params[], void *data)
 {
 	(void) params, (void) data;
+	int status = do_negative_test(insert_duplicate);
 
-	unit_true(WIFSIGNALED(do_negative_test(insert_duplicate)));
+	unit_true(WIFSIGNALED(status));
 	return (MUNIT_OK);
 }
 
