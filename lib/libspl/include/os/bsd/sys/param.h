@@ -14,6 +14,7 @@
 #define	_LIBSPL_SYS_PARAM_H
 
 #include_next <sys/param.h>
+#include <sys/cdefs.h>
 #include <unistd.h>
 
 /*
@@ -37,6 +38,6 @@ extern size_t spl_pagesize(void);
 #define	MAXUID		UINT32_MAX
 #define	MAXPROJID	MAXUID
 #define	MAXNAMELEN	256
-#define	MAXOFFSET_T	OFF_MAX
+#define	MAXOFFSET_T	__type_max(off_t)
 
 #endif	/* _LIBSPL_SYS_PARAM_H */

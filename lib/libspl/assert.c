@@ -41,6 +41,12 @@
 #define	libspl_getprogname()	getprogname()
 #define	libspl_getthreadname(buf, len)	\
 	pthread_getname_np(pthread_self(), buf, len);
+#elif defined(__NetBSD__)
+#include <lwp.h>
+#define	libspl_gettid()		_lwp_self()
+#define	libspl_getprogname()	getprogname()
+#define	libspl_getthreadname(buf, len)	\
+	pthread_getname_np(pthread_self(), buf, len)
 #endif
 
 #if defined(__APPLE__)

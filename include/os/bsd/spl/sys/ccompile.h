@@ -43,11 +43,18 @@ extern "C" {
 #ifndef	EREMOTEIO
 #define	EREMOTEIO	EREMOTE
 #endif
-#ifndef	EINTEGRITY
-#define	EINTEGRITY	EIO
-#endif
+/*
+ * A checksum failure carries an errno of its own, which callers tell
+ * apart from EIO, so it cannot borrow that.  FreeBSD spends
+ * EINTEGRITY on it and Linux spends EBADE; where there is neither,
+ * EBADMSG says the same thing.
+ */
 #ifndef	ECKSUM
+#ifdef	EINTEGRITY
 #define	ECKSUM		EINTEGRITY
+#else
+#define	ECKSUM		EBADMSG
+#endif
 #endif
 #ifndef	EFRAGS
 #define	EFRAGS		ENOSPC
@@ -78,5 +85,21 @@ typedef off_t loff_t;
 #ifdef	__cplusplus
 }
 #endif
+
+/*
+ * The common code reaches for these without including a header for them.
+ * FreeBSD answers the same way, from its own ccompile.h.
+ */
+#define	ARRAY_SIZE(a)		(sizeof (a) / sizeof (a[0]))
+#define	ABS(a)			((a) < 0 ? -(a) : (a))
+#define	DIV_ROUND_UP(n, d)	(((n) + (d) - 1) / (d))
+#define	ISP2(x)			(((x) & ((x) - 1)) == 0)
+#define	IS_P2ALIGNED(v, a)	((((uintptr_t)(v)) & ((uintptr_t)(a) - 1)) == 0)
+#define	P2CROSS(x, y, align)	(((x) ^ (y)) > (align) - 1)
+#define	P2ROUNDUP(x, align)	((((x) - 1) | ((align) - 1)) + 1)
+#define	P2PHASE(x, align)	((x) & ((align) - 1))
+#define	P2NPHASE(x, align)	(-(x) & ((align) - 1))
+#define	P2BOUNDARY(off, len, align) \
+	(((off) ^ ((off) + (len) - 1)) > (align) - 1)
 
 #endif	/* _SYS_CCOMPILE_H */
