@@ -43,7 +43,7 @@
 #if	defined(__linux__)
 #include <security/pam_ext.h>
 #define	MAP_FLAGS MAP_PRIVATE | MAP_ANONYMOUS
-#elif	defined(__FreeBSD__)
+#elif	defined(__FreeBSD__) || defined(__NetBSD__)
 #include <security/pam_appl.h>
 static void
 pam_syslog(pam_handle_t *pamh, int loglevel, const char *fmt, ...)
@@ -54,7 +54,11 @@ pam_syslog(pam_handle_t *pamh, int loglevel, const char *fmt, ...)
 	vsyslog(loglevel, fmt, args);
 	va_end(args);
 }
+#ifdef	MAP_NOCORE
 #define	MAP_FLAGS MAP_PRIVATE | MAP_ANON | MAP_NOCORE
+#else
+#define	MAP_FLAGS MAP_PRIVATE | MAP_ANON
+#endif
 #endif
 
 #include <string.h>

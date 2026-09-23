@@ -103,7 +103,11 @@ safe_create_thread(thread_f *body, void *body_arg, const char *name,
 	 * in ZTS.
 	 */
 	while (name_attempts-- > 0) {
+#ifdef	HAVE_PTHREAD_SETNAME_NP_FORMAT
+		ret = pthread_setname_np(tid, "%s", (void *)(uintptr_t)name);
+#else
 		ret = pthread_setname_np(tid, name);
+#endif
 		if (ret == 0)
 			break;
 		usleep(100);

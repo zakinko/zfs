@@ -23,6 +23,17 @@ AC_DEFUN([ZFS_AC_CONFIG_USER_LIBFETCH], [
 	LIBFETCH_SONAME=
 	have_libfetch=
 
+	dnl #
+	dnl # Whichever library is chosen below is dlopen()ed at run time,
+	dnl # so the one holding dlopen(3) has to be linked.  That is -ldl
+	dnl # on Linux; the BSDs have it in libc and no libdl to find.
+	dnl #
+	saved_libs="$LIBS"
+	AC_SEARCH_LIBS([dlopen], [dl])
+	AS_IF([test "x$ac_cv_search_dlopen" = "xnone required"],
+	    [libfetch_dl=], [libfetch_dl="$ac_cv_search_dlopen"])
+	LIBS="$saved_libs"
+
 	saved_libs="$LIBS"
 	LIBS="$LIBS -lfetch"
 	AC_LINK_IFELSE([AC_LANG_PROGRAM([[
@@ -34,7 +45,7 @@ AC_DEFUN([ZFS_AC_CONFIG_USER_LIBFETCH], [
 		LIBFETCH_IS_FETCH=1
 		LIBFETCH_DYNAMIC=1
 		LIBFETCH_SONAME="libfetch.so.6"
-		LIBFETCH_LIBS="-ldl"
+		LIBFETCH_LIBS="$libfetch_dl"
 		AC_MSG_RESULT([fetch(3)])
 	], [])
 	LIBS="$saved_libs"
@@ -47,7 +58,7 @@ AC_DEFUN([ZFS_AC_CONFIG_USER_LIBFETCH], [
 			if test "$(curl-config --built-shared)" = "yes"; then
 				LIBFETCH_DYNAMIC=1
 				LIBFETCH_SONAME="libcurl.so.4"
-				LIBFETCH_LIBS="-ldl"
+				LIBFETCH_LIBS="$libfetch_dl"
 				AC_MSG_RESULT([libcurl])
 			else
 				LIBFETCH_LIBS="$(curl-config --libs)"
