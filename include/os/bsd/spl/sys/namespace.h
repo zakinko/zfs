@@ -1,0 +1,360 @@
+// SPDX-License-Identifier: CDDL-1.0
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
+ */
+
+#ifndef _SPL_SYS_NAMESPACE_H
+#define	_SPL_SYS_NAMESPACE_H
+
+/*
+ * NetBSD refuses to load a module that defines a global symbol the
+ * kernel or a loaded module already defines (kobj_checksyms() in
+ * subr_kobj.c).  The kernel has nvlist_*() of its own, FreeBSD's libnv,
+ * and icp_init(), the icp(4) driver's; NetBSD's own ZFS stack, the
+ * solaris module that dtrace needs, defines avl_*(), fm_*(), u8_*(),
+ * xdr_*() and the nvpair functions.  So within the module these are
+ * all renamed into openzfs_*, as NetBSD's own ZFS renamed its nvpair
+ * functions into opensolaris_* (osnet's sys/sys/nvnamespace.h), with a
+ * prefix of its own so that the two stacks can be loaded together.
+ *
+ * The list is every global the module defines in those families,
+ * taken from nm(1) of zfs.kmod; module/os/bsd/check-symbols.sh checks that no
+ * global it defines is also one of the kernel's.
+ */
+
+#define	avl_add	openzfs_avl_add
+#define	avl_create	openzfs_avl_create
+#define	avl_destroy	openzfs_avl_destroy
+#define	avl_destroy_nodes	openzfs_avl_destroy_nodes
+#define	avl_find	openzfs_avl_find
+#define	avl_first	openzfs_avl_first
+#define	avl_insert	openzfs_avl_insert
+#define	avl_insert_here	openzfs_avl_insert_here
+#define	avl_is_empty	openzfs_avl_is_empty
+#define	avl_last	openzfs_avl_last
+#define	avl_nearest	openzfs_avl_nearest
+#define	avl_numnodes	openzfs_avl_numnodes
+#define	avl_remove	openzfs_avl_remove
+#define	avl_swap	openzfs_avl_swap
+#define	avl_update	openzfs_avl_update
+#define	avl_update_gt	openzfs_avl_update_gt
+#define	avl_update_lt	openzfs_avl_update_lt
+#define	avl_walk	openzfs_avl_walk
+#define	fm_ena_format_get	openzfs_fm_ena_format_get
+#define	fm_ena_generate	openzfs_fm_ena_generate
+#define	fm_ena_generate_cpu	openzfs_fm_ena_generate_cpu
+#define	fm_ena_generation_get	openzfs_fm_ena_generation_get
+#define	fm_ena_id_get	openzfs_fm_ena_id_get
+#define	fm_ena_increment	openzfs_fm_ena_increment
+#define	fm_ena_time_get	openzfs_fm_ena_time_get
+#define	fm_ereport_set	openzfs_fm_ereport_set
+#define	fm_erpt_dropped_increment	openzfs_fm_erpt_dropped_increment
+#define	fm_fini	openzfs_fm_fini
+#define	fm_fmri_cpu_set	openzfs_fm_fmri_cpu_set
+#define	fm_fmri_dev_set	openzfs_fm_fmri_dev_set
+#define	fm_fmri_hc_create	openzfs_fm_fmri_hc_create
+#define	fm_fmri_hc_set	openzfs_fm_fmri_hc_set
+#define	fm_fmri_mem_set	openzfs_fm_fmri_mem_set
+#define	fm_fmri_zfs_set	openzfs_fm_fmri_zfs_set
+#define	fm_init	openzfs_fm_init
+#define	fm_ksp	openzfs_fm_ksp
+#define	fm_nva_xcreate	openzfs_fm_nva_xcreate
+#define	fm_nva_xdestroy	openzfs_fm_nva_xdestroy
+#define	fm_nvlist_create	openzfs_fm_nvlist_create
+#define	fm_nvlist_destroy	openzfs_fm_nvlist_destroy
+#define	fm_payload_set	openzfs_fm_payload_set
+#define	fnvlist_add_boolean	openzfs_fnvlist_add_boolean
+#define	fnvlist_add_boolean_array	openzfs_fnvlist_add_boolean_array
+#define	fnvlist_add_boolean_value	openzfs_fnvlist_add_boolean_value
+#define	fnvlist_add_byte	openzfs_fnvlist_add_byte
+#define	fnvlist_add_byte_array	openzfs_fnvlist_add_byte_array
+#define	fnvlist_add_int16	openzfs_fnvlist_add_int16
+#define	fnvlist_add_int16_array	openzfs_fnvlist_add_int16_array
+#define	fnvlist_add_int32	openzfs_fnvlist_add_int32
+#define	fnvlist_add_int32_array	openzfs_fnvlist_add_int32_array
+#define	fnvlist_add_int64	openzfs_fnvlist_add_int64
+#define	fnvlist_add_int64_array	openzfs_fnvlist_add_int64_array
+#define	fnvlist_add_int8	openzfs_fnvlist_add_int8
+#define	fnvlist_add_int8_array	openzfs_fnvlist_add_int8_array
+#define	fnvlist_add_nvlist	openzfs_fnvlist_add_nvlist
+#define	fnvlist_add_nvlist_array	openzfs_fnvlist_add_nvlist_array
+#define	fnvlist_add_nvpair	openzfs_fnvlist_add_nvpair
+#define	fnvlist_add_string	openzfs_fnvlist_add_string
+#define	fnvlist_add_string_array	openzfs_fnvlist_add_string_array
+#define	fnvlist_add_uint16	openzfs_fnvlist_add_uint16
+#define	fnvlist_add_uint16_array	openzfs_fnvlist_add_uint16_array
+#define	fnvlist_add_uint32	openzfs_fnvlist_add_uint32
+#define	fnvlist_add_uint32_array	openzfs_fnvlist_add_uint32_array
+#define	fnvlist_add_uint64	openzfs_fnvlist_add_uint64
+#define	fnvlist_add_uint64_array	openzfs_fnvlist_add_uint64_array
+#define	fnvlist_add_uint8	openzfs_fnvlist_add_uint8
+#define	fnvlist_add_uint8_array	openzfs_fnvlist_add_uint8_array
+#define	fnvlist_alloc	openzfs_fnvlist_alloc
+#define	fnvlist_dup	openzfs_fnvlist_dup
+#define	fnvlist_free	openzfs_fnvlist_free
+#define	fnvlist_lookup_boolean	openzfs_fnvlist_lookup_boolean
+#define	fnvlist_lookup_boolean_array	openzfs_fnvlist_lookup_boolean_array
+#define	fnvlist_lookup_boolean_value	openzfs_fnvlist_lookup_boolean_value
+#define	fnvlist_lookup_byte	openzfs_fnvlist_lookup_byte
+#define	fnvlist_lookup_byte_array	openzfs_fnvlist_lookup_byte_array
+#define	fnvlist_lookup_int16	openzfs_fnvlist_lookup_int16
+#define	fnvlist_lookup_int16_array	openzfs_fnvlist_lookup_int16_array
+#define	fnvlist_lookup_int32	openzfs_fnvlist_lookup_int32
+#define	fnvlist_lookup_int32_array	openzfs_fnvlist_lookup_int32_array
+#define	fnvlist_lookup_int64	openzfs_fnvlist_lookup_int64
+#define	fnvlist_lookup_int64_array	openzfs_fnvlist_lookup_int64_array
+#define	fnvlist_lookup_int8	openzfs_fnvlist_lookup_int8
+#define	fnvlist_lookup_int8_array	openzfs_fnvlist_lookup_int8_array
+#define	fnvlist_lookup_nvlist	openzfs_fnvlist_lookup_nvlist
+#define	fnvlist_lookup_nvpair	openzfs_fnvlist_lookup_nvpair
+#define	fnvlist_lookup_string	openzfs_fnvlist_lookup_string
+#define	fnvlist_lookup_uint16	openzfs_fnvlist_lookup_uint16
+#define	fnvlist_lookup_uint16_array	openzfs_fnvlist_lookup_uint16_array
+#define	fnvlist_lookup_uint32	openzfs_fnvlist_lookup_uint32
+#define	fnvlist_lookup_uint32_array	openzfs_fnvlist_lookup_uint32_array
+#define	fnvlist_lookup_uint64	openzfs_fnvlist_lookup_uint64
+#define	fnvlist_lookup_uint64_array	openzfs_fnvlist_lookup_uint64_array
+#define	fnvlist_lookup_uint8	openzfs_fnvlist_lookup_uint8
+#define	fnvlist_lookup_uint8_array	openzfs_fnvlist_lookup_uint8_array
+#define	fnvlist_merge	openzfs_fnvlist_merge
+#define	fnvlist_num_pairs	openzfs_fnvlist_num_pairs
+#define	fnvlist_pack	openzfs_fnvlist_pack
+#define	fnvlist_pack_free	openzfs_fnvlist_pack_free
+#define	fnvlist_remove	openzfs_fnvlist_remove
+#define	fnvlist_remove_nvpair	openzfs_fnvlist_remove_nvpair
+#define	fnvlist_size	openzfs_fnvlist_size
+#define	fnvlist_unpack	openzfs_fnvlist_unpack
+#define	fnvpair_value_boolean_value	openzfs_fnvpair_value_boolean_value
+#define	fnvpair_value_byte	openzfs_fnvpair_value_byte
+#define	fnvpair_value_int16	openzfs_fnvpair_value_int16
+#define	fnvpair_value_int32	openzfs_fnvpair_value_int32
+#define	fnvpair_value_int64	openzfs_fnvpair_value_int64
+#define	fnvpair_value_int8	openzfs_fnvpair_value_int8
+#define	fnvpair_value_nvlist	openzfs_fnvpair_value_nvlist
+#define	fnvpair_value_string	openzfs_fnvpair_value_string
+#define	fnvpair_value_uint16	openzfs_fnvpair_value_uint16
+#define	fnvpair_value_uint32	openzfs_fnvpair_value_uint32
+#define	fnvpair_value_uint64	openzfs_fnvpair_value_uint64
+#define	fnvpair_value_uint8	openzfs_fnvpair_value_uint8
+#define	i_fm_payload_set	openzfs_i_fm_payload_set
+#define	icp_init	openzfs_icp_init
+#define	nv_alloc_fini	openzfs_nv_alloc_fini
+#define	nv_alloc_init	openzfs_nv_alloc_init
+#define	nv_alloc_nosleep	openzfs_nv_alloc_nosleep
+#define	nv_alloc_pushpage	openzfs_nv_alloc_pushpage
+#define	nv_alloc_reset	openzfs_nv_alloc_reset
+#define	nv_alloc_sleep	openzfs_nv_alloc_sleep
+#define	nv_fixed_ops	openzfs_nv_fixed_ops
+#define	nvlist_add_boolean	openzfs_nvlist_add_boolean
+#define	nvlist_add_boolean_array	openzfs_nvlist_add_boolean_array
+#define	nvlist_add_boolean_value	openzfs_nvlist_add_boolean_value
+#define	nvlist_add_byte	openzfs_nvlist_add_byte
+#define	nvlist_add_byte_array	openzfs_nvlist_add_byte_array
+#define	nvlist_add_hrtime	openzfs_nvlist_add_hrtime
+#define	nvlist_add_int16	openzfs_nvlist_add_int16
+#define	nvlist_add_int16_array	openzfs_nvlist_add_int16_array
+#define	nvlist_add_int32	openzfs_nvlist_add_int32
+#define	nvlist_add_int32_array	openzfs_nvlist_add_int32_array
+#define	nvlist_add_int64	openzfs_nvlist_add_int64
+#define	nvlist_add_int64_array	openzfs_nvlist_add_int64_array
+#define	nvlist_add_int8	openzfs_nvlist_add_int8
+#define	nvlist_add_int8_array	openzfs_nvlist_add_int8_array
+#define	nvlist_add_nvlist	openzfs_nvlist_add_nvlist
+#define	nvlist_add_nvlist_array	openzfs_nvlist_add_nvlist_array
+#define	nvlist_add_nvpair	openzfs_nvlist_add_nvpair
+#define	nvlist_add_string	openzfs_nvlist_add_string
+#define	nvlist_add_string_array	openzfs_nvlist_add_string_array
+#define	nvlist_add_uint16	openzfs_nvlist_add_uint16
+#define	nvlist_add_uint16_array	openzfs_nvlist_add_uint16_array
+#define	nvlist_add_uint32	openzfs_nvlist_add_uint32
+#define	nvlist_add_uint32_array	openzfs_nvlist_add_uint32_array
+#define	nvlist_add_uint64	openzfs_nvlist_add_uint64
+#define	nvlist_add_uint64_array	openzfs_nvlist_add_uint64_array
+#define	nvlist_add_uint8	openzfs_nvlist_add_uint8
+#define	nvlist_add_uint8_array	openzfs_nvlist_add_uint8_array
+#define	nvlist_alloc	openzfs_nvlist_alloc
+#define	nvlist_dup	openzfs_nvlist_dup
+#define	nvlist_empty	openzfs_nvlist_empty
+#define	nvlist_exists	openzfs_nvlist_exists
+#define	nvlist_free	openzfs_nvlist_free
+#define	nvlist_lookup_boolean	openzfs_nvlist_lookup_boolean
+#define	nvlist_lookup_boolean_array	openzfs_nvlist_lookup_boolean_array
+#define	nvlist_lookup_boolean_value	openzfs_nvlist_lookup_boolean_value
+#define	nvlist_lookup_byte	openzfs_nvlist_lookup_byte
+#define	nvlist_lookup_byte_array	openzfs_nvlist_lookup_byte_array
+#define	nvlist_lookup_hrtime	openzfs_nvlist_lookup_hrtime
+#define	nvlist_lookup_int16	openzfs_nvlist_lookup_int16
+#define	nvlist_lookup_int16_array	openzfs_nvlist_lookup_int16_array
+#define	nvlist_lookup_int32	openzfs_nvlist_lookup_int32
+#define	nvlist_lookup_int32_array	openzfs_nvlist_lookup_int32_array
+#define	nvlist_lookup_int64	openzfs_nvlist_lookup_int64
+#define	nvlist_lookup_int64_array	openzfs_nvlist_lookup_int64_array
+#define	nvlist_lookup_int8	openzfs_nvlist_lookup_int8
+#define	nvlist_lookup_int8_array	openzfs_nvlist_lookup_int8_array
+#define	nvlist_lookup_nv_alloc	openzfs_nvlist_lookup_nv_alloc
+#define	nvlist_lookup_nvlist	openzfs_nvlist_lookup_nvlist
+#define	nvlist_lookup_nvlist_array	openzfs_nvlist_lookup_nvlist_array
+#define	nvlist_lookup_nvpair	openzfs_nvlist_lookup_nvpair
+#define	nvlist_lookup_nvpair_embedded_index	openzfs_nvlist_lookup_nvpair_embedded_index
+#define	nvlist_lookup_pairs	openzfs_nvlist_lookup_pairs
+#define	nvlist_lookup_string	openzfs_nvlist_lookup_string
+#define	nvlist_lookup_string_array	openzfs_nvlist_lookup_string_array
+#define	nvlist_lookup_uint16	openzfs_nvlist_lookup_uint16
+#define	nvlist_lookup_uint16_array	openzfs_nvlist_lookup_uint16_array
+#define	nvlist_lookup_uint32	openzfs_nvlist_lookup_uint32
+#define	nvlist_lookup_uint32_array	openzfs_nvlist_lookup_uint32_array
+#define	nvlist_lookup_uint64	openzfs_nvlist_lookup_uint64
+#define	nvlist_lookup_uint64_array	openzfs_nvlist_lookup_uint64_array
+#define	nvlist_lookup_uint8	openzfs_nvlist_lookup_uint8
+#define	nvlist_lookup_uint8_array	openzfs_nvlist_lookup_uint8_array
+#define	nvlist_merge	openzfs_nvlist_merge
+#define	nvlist_next_nvpair	openzfs_nvlist_next_nvpair
+#define	nvlist_nvflag	openzfs_nvlist_nvflag
+#define	nvlist_pack	openzfs_nvlist_pack
+#define	nvlist_prev_nvpair	openzfs_nvlist_prev_nvpair
+#define	nvlist_remove	openzfs_nvlist_remove
+#define	nvlist_remove_all	openzfs_nvlist_remove_all
+#define	nvlist_remove_nvpair	openzfs_nvlist_remove_nvpair
+#define	nvlist_size	openzfs_nvlist_size
+#define	nvlist_snprintf	openzfs_nvlist_snprintf
+#define	nvlist_unpack	openzfs_nvlist_unpack
+#define	nvlist_xalloc	openzfs_nvlist_xalloc
+#define	nvlist_xdup	openzfs_nvlist_xdup
+#define	nvlist_xpack	openzfs_nvlist_xpack
+#define	nvlist_xunpack	openzfs_nvlist_xunpack
+#define	nvpair_name	openzfs_nvpair_name
+#define	nvpair_type	openzfs_nvpair_type
+#define	nvpair_type_is_array	openzfs_nvpair_type_is_array
+#define	nvpair_value_boolean_array	openzfs_nvpair_value_boolean_array
+#define	nvpair_value_boolean_value	openzfs_nvpair_value_boolean_value
+#define	nvpair_value_byte	openzfs_nvpair_value_byte
+#define	nvpair_value_byte_array	openzfs_nvpair_value_byte_array
+#define	nvpair_value_hrtime	openzfs_nvpair_value_hrtime
+#define	nvpair_value_int16	openzfs_nvpair_value_int16
+#define	nvpair_value_int16_array	openzfs_nvpair_value_int16_array
+#define	nvpair_value_int32	openzfs_nvpair_value_int32
+#define	nvpair_value_int32_array	openzfs_nvpair_value_int32_array
+#define	nvpair_value_int64	openzfs_nvpair_value_int64
+#define	nvpair_value_int64_array	openzfs_nvpair_value_int64_array
+#define	nvpair_value_int8	openzfs_nvpair_value_int8
+#define	nvpair_value_int8_array	openzfs_nvpair_value_int8_array
+#define	nvpair_value_nvlist	openzfs_nvpair_value_nvlist
+#define	nvpair_value_nvlist_array	openzfs_nvpair_value_nvlist_array
+#define	nvpair_value_string	openzfs_nvpair_value_string
+#define	nvpair_value_string_array	openzfs_nvpair_value_string_array
+#define	nvpair_value_uint16	openzfs_nvpair_value_uint16
+#define	nvpair_value_uint16_array	openzfs_nvpair_value_uint16_array
+#define	nvpair_value_uint32	openzfs_nvpair_value_uint32
+#define	nvpair_value_uint32_array	openzfs_nvpair_value_uint32_array
+#define	nvpair_value_uint64	openzfs_nvpair_value_uint64
+#define	nvpair_value_uint64_array	openzfs_nvpair_value_uint64_array
+#define	nvpair_value_uint8	openzfs_nvpair_value_uint8
+#define	nvpair_value_uint8_array	openzfs_nvpair_value_uint8_array
+#define	u8_strcmp	openzfs_u8_strcmp
+#define	u8_textprep_str	openzfs_u8_textprep_str
+#define	u8_validate	openzfs_u8_validate
+#define	xdr_array	openzfs_xdr_array
+#define	xdr_bool	openzfs_xdr_bool
+#define	xdr_bytes	openzfs_xdr_bytes
+#define	xdr_char	openzfs_xdr_char
+#define	xdr_enum	openzfs_xdr_enum
+#define	xdr_free	openzfs_xdr_free
+#define	xdr_hyper	openzfs_xdr_hyper
+#define	xdr_int	openzfs_xdr_int
+#define	xdr_int16_t	openzfs_xdr_int16_t
+#define	xdr_int32_t	openzfs_xdr_int32_t
+#define	xdr_int64_t	openzfs_xdr_int64_t
+#define	xdr_long	openzfs_xdr_long
+#define	xdr_longlong_t	openzfs_xdr_longlong_t
+#define	xdr_netobj	openzfs_xdr_netobj
+#define	xdr_opaque	openzfs_xdr_opaque
+#define	xdr_short	openzfs_xdr_short
+#define	xdr_string	openzfs_xdr_string
+#define	xdr_u_char	openzfs_xdr_u_char
+#define	xdr_u_hyper	openzfs_xdr_u_hyper
+#define	xdr_u_int	openzfs_xdr_u_int
+#define	xdr_u_int16_t	openzfs_xdr_u_int16_t
+#define	xdr_u_int32_t	openzfs_xdr_u_int32_t
+#define	xdr_u_int64_t	openzfs_xdr_u_int64_t
+#define	xdr_u_long	openzfs_xdr_u_long
+#define	xdr_u_longlong_t	openzfs_xdr_u_longlong_t
+#define	xdr_u_short	openzfs_xdr_u_short
+#define	xdr_union	openzfs_xdr_union
+#define	xdr_vector	openzfs_xdr_vector
+#define	xdr_void	openzfs_xdr_void
+#define	xdrmem_create	openzfs_xdrmem_create
+
+/*
+ * The SPL's own families: the solaris module defines the same names.
+ * list_head, list_next, list_prev and utsname are also the names of
+ * struct members and of a struct, so only the calls are renamed.
+ */
+#define	cmn_err	openzfs_cmn_err
+#define	ddi_strtol	openzfs_ddi_strtol
+#define	ddi_strtoll	openzfs_ddi_strtoll
+#define	ddi_strtoull	openzfs_ddi_strtoull
+#define	kmem_asprintf	openzfs_kmem_asprintf
+#define	kmem_cache_alloc	openzfs_kmem_cache_alloc
+#define	kmem_cache_create	openzfs_kmem_cache_create
+#define	kmem_cache_destroy	openzfs_kmem_cache_destroy
+#define	kmem_cache_free	openzfs_kmem_cache_free
+#define	kmem_cache_reap_active	openzfs_kmem_cache_reap_active
+#define	kmem_cache_reap_soon	openzfs_kmem_cache_reap_soon
+#define	kmem_reap	openzfs_kmem_reap
+#define	kmem_scnprintf	openzfs_kmem_scnprintf
+#define	kmem_vasprintf	openzfs_kmem_vasprintf
+#define	list_create	openzfs_list_create
+#define	list_destroy	openzfs_list_destroy
+#define	list_head(...)	openzfs_list_head(__VA_ARGS__)
+#define	list_insert_after	openzfs_list_insert_after
+#define	list_insert_before	openzfs_list_insert_before
+#define	list_insert_head	openzfs_list_insert_head
+#define	list_insert_tail	openzfs_list_insert_tail
+#define	list_is_empty	openzfs_list_is_empty
+#define	list_link_active	openzfs_list_link_active
+#define	list_link_init	openzfs_list_link_init
+#define	list_link_replace	openzfs_list_link_replace
+#define	list_move_tail	openzfs_list_move_tail
+#define	list_next(...)	openzfs_list_next(__VA_ARGS__)
+#define	list_prev(...)	openzfs_list_prev(__VA_ARGS__)
+#define	list_remove	openzfs_list_remove
+#define	list_remove_head	openzfs_list_remove_head
+#define	list_remove_tail	openzfs_list_remove_tail
+#define	list_tail	openzfs_list_tail
+#define	secpolicy_sys_config	openzfs_secpolicy_sys_config
+#define	secpolicy_vnode_setid_retain	openzfs_secpolicy_vnode_setid_retain
+#define	secpolicy_zfs	openzfs_secpolicy_zfs
+#define	secpolicy_zinject	openzfs_secpolicy_zinject
+#define	system_delay_taskq	openzfs_system_delay_taskq
+#define	system_taskq	openzfs_system_taskq
+#define	taskq_cancel_id	openzfs_taskq_cancel_id
+#define	taskq_create	openzfs_taskq_create
+#define	taskq_create_proc	openzfs_taskq_create_proc
+#define	taskq_create_synced	openzfs_taskq_create_synced
+#define	taskq_destroy	openzfs_taskq_destroy
+#define	taskq_dispatch	openzfs_taskq_dispatch
+#define	taskq_dispatch_delay	openzfs_taskq_dispatch_delay
+#define	taskq_dispatch_ent	openzfs_taskq_dispatch_ent
+#define	taskq_empty_ent	openzfs_taskq_empty_ent
+#define	taskq_init_ent	openzfs_taskq_init_ent
+#define	taskq_member	openzfs_taskq_member
+#define	taskq_of_curthread	openzfs_taskq_of_curthread
+#define	taskq_resume	openzfs_taskq_resume
+#define	taskq_suspend	openzfs_taskq_suspend
+#define	taskq_suspended	openzfs_taskq_suspended
+#define	taskq_wait	openzfs_taskq_wait
+#define	taskq_wait_id	openzfs_taskq_wait_id
+#define	taskq_wait_outstanding	openzfs_taskq_wait_outstanding
+#define	utsname(...)	openzfs_utsname(__VA_ARGS__)
+#define	vcmn_err	openzfs_vcmn_err
+#define	z_compress_level	openzfs_z_compress_level
+#define	z_uncompress	openzfs_z_uncompress
+
+#endif	/* _SPL_SYS_NAMESPACE_H */

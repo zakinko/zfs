@@ -78,6 +78,8 @@ extern "C" {
 typedef off_t loff_t;
 
 #if defined(_KERNEL)
+#include <sys/namespace.h>
+
 /*
  * Linux's module plumbing, which the common code names and which a
  * NetBSD module has no use for: a module's symbols are all visible to

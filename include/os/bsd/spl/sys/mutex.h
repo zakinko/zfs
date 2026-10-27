@@ -21,8 +21,9 @@
  * its arguments.
  */
 #include_next <sys/mutex.h>
-#include <sys/intr.h>
-#include <sys/systm.h>
+
+/* As <sys/systm.h> declares it, which this low a header must not pull in. */
+extern const char *panicstr;
 
 #define	MUTEX_HELD(x)		(mutex_owned(x))
 #define	MUTEX_NOT_HELD(x)	(!mutex_owned(x) || panicstr != NULL)

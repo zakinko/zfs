@@ -24,8 +24,6 @@
  */
 #include_next <sys/uio.h>
 #include <sys/debug.h>
-#include <sys/sysmacros.h>
-#include <uvm/uvm_extern.h>
 
 #define	UIO_DIRECT		0x0001
 #define	UIO_UNCACHED		0x0002
@@ -94,19 +92,12 @@ zfs_uio_advance(zfs_uio_t *uio, ssize_t size)
 	zfs_uio_offset(uio) += size;
 }
 
-static __inline void
-zfs_uio_init(zfs_uio_t *uio, struct uio *uio_s)
-{
-
-	memset(uio, 0, sizeof (zfs_uio_t));
-	if (uio_s != NULL) {
-		uio->uio = uio_s;
-		zfs_uio_soffset(uio) = uio_s->uio_offset;
-		zfs_uio_segflg(uio) =
-		    VMSPACE_IS_KERNEL_P(uio_s->uio_vmspace) ?
-		    UIO_SYSSPACE : UIO_USERSPACE;
-	}
-}
+/*
+ * NetBSD's <sys/param.h> includes <sys/uio.h>, so this file stays clear
+ * of uvm, which zfs_uio_init() needs to read the segment; it is in
+ * spl_uio.c.
+ */
+extern void zfs_uio_init(zfs_uio_t *, struct uio *);
 
 extern int zfs_uio_fault_move(void *, size_t, zfs_uio_rw_t, zfs_uio_t *);
 

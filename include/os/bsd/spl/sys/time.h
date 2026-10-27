@@ -14,8 +14,20 @@
 #define	_SPL_SYS_TIME_H
 
 #include_next <sys/time.h>
-#include <sys/timevar.h>
-#include <sys/kernel.h>
+
+/*
+ * NetBSD's <sys/sched.h> includes <sys/time.h> part way through its own
+ * declarations, so this must not reach for <sys/timevar.h> or
+ * <sys/kernel.h>, which lead back to the scheduler's structures before
+ * they are complete.  The few functions used here are declared as
+ * those headers declare them.
+ */
+void	nanouptime(struct timespec *);
+void	getnanouptime(struct timespec *);
+void	getbinuptime(struct bintime *);
+void	getnanotime(struct timespec *);
+time_t	getrealtime(void);
+extern int hz;
 
 #define	SEC		1
 #define	MILLISEC	1000UL
@@ -64,7 +76,7 @@ getlrtime(void)
 }
 
 #define	gethrtime_waitfree()	gethrtime()
-#define	gethrestime_sec()	(time_second)
+#define	gethrestime_sec()	(getrealtime())
 #define	gethrestime(ts)		getnanotime(ts)
 
 /*

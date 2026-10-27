@@ -20,8 +20,6 @@
 #include_next <sys/proc.h>
 #include <sys/lwp.h>
 #include <sys/kthread.h>
-#include <sys/cpu.h>
-#include <sys/systm.h>
 
 #define	CPU		curcpu()
 #define	curthread	curlwp

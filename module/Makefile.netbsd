@@ -66,6 +66,18 @@ SRCS+=	xdr.c \
 	xdr_array.c \
 	xdr_mem.c
 
+#os/bsd/spl
+SRCS+=	list.c \
+	spl_kmem.c \
+	spl_kstat.c \
+	spl_misc.c \
+	spl_policy.c \
+	spl_procfs_list.c \
+	spl_sysctl.c \
+	spl_taskq.c \
+	spl_uio.c \
+	spl_zlib.c
+
 #nvpair
 SRCS+=	fnvpair.c \
 	nvpair.c \

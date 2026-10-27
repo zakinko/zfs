@@ -107,6 +107,7 @@ struct kstat_s {
 	char		*ks_raw_buf;
 	size_t		ks_raw_bufsize;
 	struct sysctllog *ks_sysctllog;
+	void		*ks_fields;	/* a named kstat's nodes */
 };
 
 typedef struct kstat_named_s {

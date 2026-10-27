@@ -23,7 +23,6 @@
  */
 #include_next <sys/condvar.h>
 #include <sys/errno.h>
-#include <sys/systm.h>
 #include <sys/mutex.h>
 #include <sys/time.h>
 #include <machine/limits.h>
