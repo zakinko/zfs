@@ -4367,7 +4367,10 @@ zfs_netbsd_inactive(void *v)
 /*
  * vcache has flushed the pages; the znode goes, and with it the file if
  * it was unlinked.  z_teardown_inactive_lock keeps zfsvfs_teardown()
- * from finishing the znode under it.
+ * from finishing the znode under it.  The vnode comes locked and goes
+ * back unlocked, as NetBSD's reclaim does; it stays locked until the
+ * znode is gone, since removing a file expects the lock (zfs_rmnode()).
+ * The genfs node lives in the znode, so it goes first.
  */
 static int
 zfs_netbsd_reclaim(void *v)
@@ -4377,15 +4380,15 @@ zfs_netbsd_reclaim(void *v)
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-	VOP_UNLOCK(vp);
+	genfs_node_destroy(vp);
 	ZFS_TEARDOWN_INACTIVE_ENTER_READ(zfsvfs);
 	if (zp->z_sa_hdl == NULL)
 		zfs_znode_free(zp);
 	else
 		zfs_zinactive(zp);
 	ZFS_TEARDOWN_INACTIVE_EXIT_READ(zfsvfs);
-	genfs_node_destroy(vp);
 	vp->v_data = NULL;
+	VOP_UNLOCK(vp);
 	return (0);
 }
 
