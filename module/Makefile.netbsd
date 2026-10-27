@@ -13,9 +13,17 @@ KMOD=	zfs
 .PATH:	${SRCDIR}/avl \
 	${SRCDIR}/lua \
 	${SRCDIR}/nvpair \
+	${SRCDIR}/icp \
+	${SRCDIR}/icp/algs/aes \
 	${SRCDIR}/icp/algs/blake3 \
 	${SRCDIR}/icp/algs/edonr \
+	${SRCDIR}/icp/algs/modes \
 	${SRCDIR}/icp/algs/sha2 \
+	${SRCDIR}/icp/algs/skein \
+	${SRCDIR}/icp/api \
+	${SRCDIR}/icp/core \
+	${SRCDIR}/icp/io \
+	${SRCDIR}/icp/spi \
 	${SRCDIR}/os/bsd/spl \
 	${SRCDIR}/os/bsd/zfs \
 	${SRCDIR}/unicode \
@@ -37,6 +45,8 @@ CPPFLAGS+= -include ${INCDIR}/os/bsd/spl/sys/ccompile.h
 CPPFLAGS+= -D_KERNEL -D__KERNEL__ -DBUILDING_ZFS -DNDEBUG
 # What configure defines for the userland build (config/always-system.m4).
 CPPFLAGS+= -DSYSTEM_BSD -DSYSTEM_NETBSD
+# What NetBSD's kernel has that the common code asks after.
+CPPFLAGS+= -DHAVE_EXPLICIT_MEMSET
 
 .if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "powerpc" || \
     ${MACHINE_ARCH:Mearm*} || ${MACHINE_ARCH:Mmips*} || \
@@ -86,6 +96,32 @@ SRCS+=	edonr.c
 SRCS+=	sha256_impl.c \
 	sha2_generic.c \
 	sha512_impl.c
+# The illumos crypto framework, which encryption goes through here as
+# on Linux: FreeBSD's kernel has a framework of its own, NetBSD's
+# opencrypto(9) another, and this one is the module's own.
+SRCS+=	illumos-crypto.c \
+	aes_impl.c \
+	aes_impl_generic.c \
+	aes_modes.c \
+	ccm.c \
+	gcm.c \
+	gcm_generic.c \
+	modes.c \
+	skein.c \
+	skein_block.c \
+	skein_iv.c \
+	kcf_cipher.c \
+	kcf_ctxops.c \
+	kcf_mac.c \
+	kcf_callprov.c \
+	kcf_mech_tabs.c \
+	kcf_prov_lib.c \
+	kcf_prov_tabs.c \
+	kcf_sched.c \
+	aes.c \
+	sha2_mod.c \
+	kcf_spi.c
+
 #lua
 SRCS+=	lapi.c \
 	lauxlib.c \
@@ -247,6 +283,24 @@ SRCS+=	abd.c \
 	zrlock.c \
 	zthr.c \
 	zvol.c
+
+# The x86_64 implementations that use no vector unit, which the impl
+# tables name whatever the toolchain, as Linux builds them.
+.if ${MACHINE_ARCH} == "x86_64"
+.PATH:	${SRCDIR}/icp/asm-x86_64/aes \
+	${SRCDIR}/icp/asm-x86_64/sha2
+SRCS+=	aes_impl_x86-64.c \
+	aes_amd64.S \
+	aeskey.c \
+	sha256-x86_64.S \
+	sha512-x86_64.S
+.endif
+
+# Common code FreeBSD takes from its own kernel instead.
+SRCS+=	hkdf.c \
+	zfs_crrd.c \
+	zfs_debug_common.c \
+	zio_crypt_os_icp.c
 #zstd
 SRCS+=	zfs_zstd.c
 #zstd/common
@@ -281,5 +335,18 @@ DPSRCS+=	zfs_gitrev.h
 CLEANFILES+=	zfs_gitrev.h
 zfs_gitrev.h:
 	sh ${.CURDIR:H}/scripts/make_gitrev.sh ${.TARGET}
+
+# zstd as Linux builds it (module/Kbuild.in): its upstream sources see
+# the module's names through zstd_compat_wrapper.h, which also inlines
+# xxhash, and none of its assembly, intrinsics or tracing.
+ZSTD_UPSTREAM=	entropy_common.c error_private.c fse_decompress.c pool.c zstd_common.c fse_compress.c hist.c huf_compress.c zstd_compress.c zstd_compress_literals.c zstd_compress_sequences.c zstd_compress_superblock.c zstd_double_fast.c zstd_fast.c zstd_lazy.c zstd_ldm.c zstd_opt.c zstd_preSplit.c huf_decompress.c zstd_ddict.c zstd_decompress_block.c zstd_decompress.c
+ZSTD_FLAGS=	-O3 -fno-tree-vectorize -U__BMI__ -DZSTD_DISABLE_ASM \
+		-DZSTD_NO_INTRINSICS -DZSTD_TRACE=0
+.for f in ${ZSTD_UPSTREAM}
+CPPFLAGS.${f}+=	-include ${SRCDIR}/zstd/include/zstd_compat_wrapper.h
+COPTS.${f}+=	${ZSTD_FLAGS} -Wno-error
+.endfor
+CPPFLAGS.zfs_zstd.c+=	-include ${SRCDIR}/zstd/include/zstd_compat_wrapper.h
+COPTS.zfs_zstd.c+=	${ZSTD_FLAGS}
 
 .include <bsd.kmodule.mk>

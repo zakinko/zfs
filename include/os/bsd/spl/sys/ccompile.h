@@ -13,6 +13,9 @@
 #ifndef	_SYS_CCOMPILE_H
 #define	_SYS_CCOMPILE_H
 
+/* Force included into assembly sources too, which want none of it. */
+#ifndef	__ASSEMBLER__
+
 /*
  * Names the common code takes from illumos and Linux.  Force included
  * from config/Rules.am.  The guards matter: the three systems sharing
@@ -142,5 +145,7 @@ typedef off_t loff_t;
 	(((off) ^ ((off) + (len) - 1)) > (align) - 1)
 
 #endif	/* !_KERNEL */
+
+#endif	/* !__ASSEMBLER__ */
 
 #endif	/* _SYS_CCOMPILE_H */

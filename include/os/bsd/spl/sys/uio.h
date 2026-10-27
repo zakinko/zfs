@@ -14,10 +14,13 @@
 #define	_SPL_SYS_UIO_H
 
 /*
- * zfs_uio_t over NetBSD's struct uio.  NetBSD's uio carries no segment
- * flag: whether the iovecs are user or kernel addresses is whether
- * uio_vmspace is the kernel's, so the illumos segment is computed from
- * it.
+ * zfs_uio_t over NetBSD's struct uio.  It either wraps a caller's uio,
+ * as the vnode operations hand one in, or carries one of its own, as
+ * the encryption code builds one from a zeroed zfs_uio_t: zio_crypt_os_icp.c
+ * fills in the iovecs and the segment directly.  The segment is kept
+ * here, because NetBSD's uio has no segment flag: whether its iovecs
+ * are user or kernel addresses is whether uio_vmspace is the kernel's,
+ * and zfs_uio_init() reads it from there.
  */
 #include_next <sys/uio.h>
 #include <sys/debug.h>
@@ -46,16 +49,17 @@ typedef struct {
 } zfs_uio_dio_t;
 
 typedef struct zfs_uio {
-	struct uio	*uio;
+	struct uio	*uio;		/* a caller's, or NULL for uio_store */
+	struct uio	uio_store;
+	zfs_uio_seg_t	uio_segflg;
 	offset_t	uio_soffset;
 	uint16_t	uio_extflg;
 	zfs_uio_dio_t	uio_dio;
 } zfs_uio_t;
 
-#define	GET_UIO_STRUCT(u)	(u)->uio
-#define	zfs_uio_segflg(u)						\
-	(VMSPACE_IS_KERNEL_P(GET_UIO_STRUCT(u)->uio_vmspace) ?		\
-	    UIO_SYSSPACE : UIO_USERSPACE)
+#define	GET_UIO_STRUCT(u)						\
+	((u)->uio != NULL ? (u)->uio : &(u)->uio_store)
+#define	zfs_uio_segflg(u)	(u)->uio_segflg
 #define	zfs_uio_offset(u)	GET_UIO_STRUCT(u)->uio_offset
 #define	zfs_uio_resid(u)	GET_UIO_STRUCT(u)->uio_resid
 #define	zfs_uio_iov(u)		GET_UIO_STRUCT(u)->uio_iov
@@ -96,8 +100,11 @@ zfs_uio_init(zfs_uio_t *uio, struct uio *uio_s)
 
 	memset(uio, 0, sizeof (zfs_uio_t));
 	if (uio_s != NULL) {
-		GET_UIO_STRUCT(uio) = uio_s;
+		uio->uio = uio_s;
 		zfs_uio_soffset(uio) = uio_s->uio_offset;
+		zfs_uio_segflg(uio) =
+		    VMSPACE_IS_KERNEL_P(uio_s->uio_vmspace) ?
+		    UIO_SYSSPACE : UIO_USERSPACE;
 	}
 }
 
