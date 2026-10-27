@@ -112,9 +112,14 @@ int (**zfs_specop_p)(void *);
 
 static int zfs_gop_write(vnode_t *, struct vm_page **, int, int);
 
+/*
+ * genfs_do_putpages() calls gop_putrange without asking; of these only
+ * gop_markupdate may be left NULL.
+ */
 const struct genfs_ops zfs_genfsops = {
 	.gop_size = genfs_size,
 	.gop_write = zfs_gop_write,
+	.gop_putrange = genfs_gop_putrange,
 };
 
 /*
@@ -521,6 +526,26 @@ mappedread(znode_t *zp, int nbytes, zfs_uio_t *uio)
 }
 
 /*
+ * A write fault starts tracking whether the pages are dirtied, as
+ * genfs_getpages() does: a page left clean is mapped read-only, to
+ * catch the write, and the write would fault on it again for ever.
+ */
+static void
+zfs_getpages_markdirty(struct vm_page **pgs, int npages)
+{
+	struct vm_page *pg;
+	int i;
+
+	for (i = 0; i < npages; i++) {
+		pg = pgs[i];
+		if (pg == NULL || pg == PGO_DONTCARE)
+			continue;
+		if (uvm_pagegetdirty(pg) == UVM_PAGE_STATUS_CLEAN)
+			uvm_pagemarkdirty(pg, UVM_PAGE_STATUS_UNKNOWN);
+	}
+}
+
+/*
  * Fill pages of a mapped file from the DMU.  With the object locked
  * only the resident pages can be had, and they are handed back without
  * being busied, as genfs_getpages() does and the fault code expects;
@@ -560,10 +585,13 @@ zfs_getpages(void *v)
 
 	if (ap->a_flags & PGO_LOCKED) {
 		npages = *ap->a_count;
-		if (uvn_findpages(uobj, start, &npages, pgs, NULL,
+		(void) uvn_findpages(uobj, start, &npages, pgs, NULL,
 		    UFP_NOWAIT | UFP_NOALLOC | UFP_NOBUSY |
-		    (memwrite ? UFP_NORDONLY : 0)) == 0)
+		    (memwrite ? UFP_NORDONLY : 0));
+		if (pgs[ap->a_centeridx] == NULL)
 			return (EBUSY);
+		if (memwrite)
+			zfs_getpages_markdirty(pgs, npages);
 		return (0);
 	}
 	if (start + ((voff_t)ap->a_centeridx << PAGE_SHIFT) >= vp->v_size) {
@@ -609,8 +637,11 @@ out:
 		if (error != 0 && (pg->flags & PG_FAKE) != 0) {
 			pg->flags |= PG_RELEASED;
 		} else {
-			pg->flags &= ~PG_FAKE;
-			uvm_pagemarkdirty(pg, UVM_PAGE_STATUS_UNKNOWN);
+			/* What was just read is what the DMU has. */
+			if (pg->flags & PG_FAKE) {
+				pg->flags &= ~PG_FAKE;
+				uvm_pagemarkdirty(pg, UVM_PAGE_STATUS_CLEAN);
+			}
 			uvm_pagelock(pg);
 			uvm_pageactivate(pg);
 			uvm_pageunlock(pg);
@@ -618,6 +649,8 @@ out:
 	}
 	if (error != 0)
 		uvm_page_unbusy(pgs, npages);
+	else if (memwrite)
+		zfs_getpages_markdirty(pgs, npages);
 	rw_exit(uobj->vmobjlock);
 	return (error);
 }
@@ -646,8 +679,15 @@ zfs_gop_write(vnode_t *vp, struct vm_page **pgs, int npages, int flags)
 	    UVMPAGER_MAPIN_WRITE | UVMPAGER_MAPIN_WAITOK);
 	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
 		goto done;
-	commit = (flags & PGO_SYNCIO) != 0 ||
-	    zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS;
+	/*
+	 * Committing the log looks the file up again (zfs_get_data()),
+	 * and vcache_get() waits for a vnode being reclaimed, which is
+	 * this one when vcache_reclaim() is flushing it.  Reclaiming only
+	 * needs the data in a txg, so its write is not committed.
+	 */
+	commit = (flags & PGO_RECLAIM) == 0 &&
+	    ((flags & PGO_SYNCIO) != 0 ||
+	    zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS);
 	lr = zfs_rangelock_enter(&zp->z_rangelock, off, len, RL_WRITER);
 	/* What lies past the end of the file is not written. */
 	if (off >= zp->z_size)
@@ -690,8 +730,14 @@ zfs_gop_write(vnode_t *vp, struct vm_page **pgs, int npages, int flags)
 		ASSERT3S(count, <=, ARRAY_SIZE(bulk));
 		VERIFY0(sa_bulk_update(zp->z_sa_hdl, bulk, count, tx));
 	}
-	zfs_log_write(zfsvfs->z_log, tx, TX_WRITE, zp, off, len, commit,
-	    B_FALSE, NULL, NULL);
+	/*
+	 * A reclaim's write is not logged either: committing the record
+	 * would look the file up after its vnode is gone, from an unmount
+	 * past the point where it can have vnodes again.
+	 */
+	if ((flags & PGO_RECLAIM) == 0)
+		zfs_log_write(zfsvfs->z_log, tx, TX_WRITE, zp, off, len,
+		    commit, B_FALSE, NULL, NULL);
 	dmu_tx_commit(tx);
 	dataset_kstats_update_write_kstats(&zfsvfs->z_kstat, len);
 unlock:
@@ -740,8 +786,17 @@ zfs_write_simple(znode_t *zp, const void *data, size_t len,
 void
 zfs_zrele_async(znode_t *zp)
 {
+	vnode_t *vp = ZTOV(zp);
+	objset_t *os = ITOZSB(vp)->z_os;
 
-	vrele_async(ZTOV(zp));
+	/*
+	 * Into the pool's zrele taskq, as on FreeBSD and Linux, rather
+	 * than NetBSD's vrele_async(): zfsvfs_teardown() waits for that
+	 * taskq before the file system goes, and nothing waits for the
+	 * other.
+	 */
+	VERIFY(taskq_dispatch(dsl_pool_zrele_taskq(dmu_objset_pool(os)),
+	    (task_func_t *)vrele, vp, TQ_SLEEP) != TASKQID_INVALID);
 }
 
 /*

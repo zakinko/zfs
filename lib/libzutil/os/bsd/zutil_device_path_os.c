@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/disklabel.h>
 #include <sys/time.h>
 
 #include <libzutil.h>
@@ -64,15 +65,20 @@ zfs_get_underlying_path(const char *dev_name)
 }
 
 /*
- * A wedge covers part of a disk, a disk covers all of itself.  Names
- * from hw.disknames are one or the other, and dk(4) is the wedge.
+ * A disk's raw partition covers all of it; a dk(4) wedge, another
+ * partition, or a file is not a whole disk.
  */
 boolean_t
 zfs_dev_is_whole_disk(const char *dev_name)
 {
-	const char *name = zfs_strip_path(dev_name);
+	struct stat st;
 
-	return (strncmp(name, "dk", 2) != 0 ? B_TRUE : B_FALSE);
+	if (stat(dev_name, &st) != 0 ||
+	    !(S_ISBLK(st.st_mode) || S_ISCHR(st.st_mode)))
+		return (B_FALSE);
+	if (strncmp(zfs_strip_path(dev_name), "dk", 2) == 0)
+		return (B_FALSE);
+	return (DISKPART(st.st_rdev) == RAW_PART ? B_TRUE : B_FALSE);
 }
 
 int

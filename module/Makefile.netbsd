@@ -48,7 +48,14 @@ ZFS_META_VERSION!=	awk '$$1 == "Version:" { print $$2 }' ${.CURDIR:H}/META
 ZFS_META_RELEASE!=	awk '$$1 == "Release:" { print $$2 }' ${.CURDIR:H}/META
 CPPFLAGS+= -DZFS_META_VERSION=\"${ZFS_META_VERSION}\"
 CPPFLAGS+= -DZFS_META_RELEASE=\"${ZFS_META_RELEASE}\"
-CPPFLAGS+= -D_KERNEL -D__KERNEL__ -DBUILDING_ZFS -DNDEBUG
+CPPFLAGS+= -D_KERNEL -D__KERNEL__ -DBUILDING_ZFS
+# make ZFS_DEBUG=yes builds the module with its assertions on and its
+# reference counts tracked, as configure --enable-debug does.
+.if defined(ZFS_DEBUG) && ${ZFS_DEBUG} != "no"
+CPPFLAGS+= -DZFS_DEBUG
+.else
+CPPFLAGS+= -DNDEBUG
+.endif
 # What configure defines for the userland build (config/always-system.m4).
 CPPFLAGS+= -DSYSTEM_BSD -DSYSTEM_NETBSD
 # What NetBSD's kernel has that the common code asks after.

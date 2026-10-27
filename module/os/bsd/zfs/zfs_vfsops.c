@@ -1435,6 +1435,15 @@ zfs_umount(struct mount *mp, int mntflags)
 		zfsvfs->z_unmounted = B_TRUE;
 		ZFS_TEARDOWN_EXIT(zfsvfs, FTAG);
 	}
+	/*
+	 * The intent log is committed while the files it names still have
+	 * their vnodes: committing a record looks its file up, and once
+	 * the vnodes are flushed that would make new ones for a file
+	 * system on its way out.
+	 */
+	if (!(mntflags & MNT_FORCE) && zfsvfs->z_log != NULL &&
+	    (error = zil_commit(zfsvfs->z_log, 0)) != 0)
+		return (error);
 	if ((error = vflush(mp, NULL, (mntflags & MNT_FORCE) ?
 	    FORCECLOSE : 0)) != 0)
 		return (error);

@@ -247,19 +247,29 @@ taskq_has(taskq_t *tq, taskqid_t id, boolean_t upto)
 }
 
 /*
- * Wait for every task dispatched before the call, delayed ones
- * included.  A task dispatched while waiting has a later id and is not
- * waited for.
+ * Wait until the taskq is empty, delayed tasks included, as illumos and
+ * Linux do.  That takes in the tasks dispatched while waiting, the ones
+ * a running task dispatches among them: spa_evicting_os_wait() waits
+ * for the eviction of a dataset this way, and that eviction dispatches
+ * the eviction of its directory, which has to be waited for as well.
  */
 void
 taskq_wait(taskq_t *tq)
 {
-	taskqid_t last;
+	int i;
 
 	mutex_enter(&tq->tq_lock);
-	last = tq->tq_nextid;
-	while (taskq_has(tq, last, B_TRUE))
+	for (;;) {
+		boolean_t busy = !TAILQ_EMPTY(&tq->tq_pending) ||
+		    !TAILQ_EMPTY(&tq->tq_delayed);
+
+		for (i = 0; !busy && i < tq->tq_nthreads; i++)
+			if (tq->tq_running[i] != TASKQID_INVALID)
+				busy = B_TRUE;
+		if (!busy)
+			break;
 		cv_wait(&tq->tq_done_cv, &tq->tq_lock);
+	}
 	mutex_exit(&tq->tq_lock);
 }
 
