@@ -346,7 +346,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	 * vcache throw it away.
 	 */
 	zp->z_vnode = vp;
-	vp->v_data = zp;
+	vp->v_data = &zp->z_gnode;
 
 	ASSERT(!POINTER_IS_VALID(zp->z_zfsvfs));
 

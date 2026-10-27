@@ -42,6 +42,12 @@ CPPFLAGS+= -I${INCDIR}/os/bsd/zfs
 CPPFLAGS+= -I${SRCDIR}/zstd/include
 CPPFLAGS+= -include ${INCDIR}/sys/simd_config.h
 CPPFLAGS+= -include ${INCDIR}/os/bsd/spl/sys/ccompile.h
+# The version the module reports, from the tree's META, as configure
+# gives it to the other builds.
+ZFS_META_VERSION!=	awk '$$1 == "Version:" { print $$2 }' ${.CURDIR:H}/META
+ZFS_META_RELEASE!=	awk '$$1 == "Release:" { print $$2 }' ${.CURDIR:H}/META
+CPPFLAGS+= -DZFS_META_VERSION=\"${ZFS_META_VERSION}\"
+CPPFLAGS+= -DZFS_META_RELEASE=\"${ZFS_META_RELEASE}\"
 CPPFLAGS+= -D_KERNEL -D__KERNEL__ -DBUILDING_ZFS -DNDEBUG
 # What configure defines for the userland build (config/always-system.m4).
 CPPFLAGS+= -DSYSTEM_BSD -DSYSTEM_NETBSD
@@ -69,6 +75,7 @@ SRCS+=	xdr.c \
 #os/bsd/spl
 SRCS+=	acl_common.c \
 	list.c \
+	spl_acl.c \
 	spl_kmem.c \
 	spl_kstat.c \
 	spl_misc.c \

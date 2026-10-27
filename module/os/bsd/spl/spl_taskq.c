@@ -200,9 +200,17 @@ taskq_create_synced(const char *name, int nthreads, pri_t pri, int minalloc,
     int maxalloc, uint_t flags, kthread_t ***ktpp)
 {
 	taskq_t *tq;
+	kthread_t **kthreads;
 
+	/*
+	 * The caller frees the array it is given, so it gets a copy of
+	 * the taskq's own, which taskq_destroy() joins the threads from.
+	 */
 	tq = taskq_create(name, nthreads, pri, minalloc, maxalloc, flags);
-	*ktpp = tq->tq_threads;
+	VERIFY3S(tq->tq_nthreads, ==, nthreads);
+	kthreads = kmem_alloc(sizeof (*kthreads) * tq->tq_nthreads, KM_SLEEP);
+	memcpy(kthreads, tq->tq_threads, sizeof (*kthreads) * tq->tq_nthreads);
+	*ktpp = kthreads;
 	return (tq);
 }
 

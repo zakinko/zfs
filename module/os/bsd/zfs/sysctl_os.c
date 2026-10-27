@@ -24,6 +24,19 @@
 #include <sys/vdev_impl.h>
 #include <sys/vdev_raidz.h>
 
+/* What zfs version reports for the kernel, as FreeBSD's names it. */
+SYSCTL_SETUP(zfs_sysctl_version_module, "OpenZFS module version")
+{
+	const struct sysctlnode *node;
+
+	if ((node = spl_sysctl_scope(clog, "zfs_version")) == NULL)
+		return;
+	(void) sysctl_createv(clog, 0, &node, NULL, CTLFLAG_READONLY,
+	    CTLTYPE_STRING, "module", SYSCTL_DESCR("OpenZFS module version"),
+	    NULL, 0, __UNCONST(ZFS_META_VERSION "-" ZFS_META_RELEASE), 0,
+	    CTL_CREATE, CTL_EOL);
+}
+
 int
 param_set_arc_u64(const char *buf, zfs_kernel_param_t *kp)
 {

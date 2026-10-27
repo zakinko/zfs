@@ -22,6 +22,7 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
+#include <sys/buf.h>
 #include <sys/conf.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
@@ -67,6 +68,24 @@ const struct fileops zfsdev_fileops = {
 };
 
 static dev_type_open(zfsdev_open);
+static dev_type_open(zfsdev_bopen);
+static dev_type_strategy(zfsdev_bstrategy);
+
+/*
+ * conf/majors gives zfs a block major as well as a character one, the
+ * same number, for the volumes, and devsw_attach() takes the name only
+ * with both.  Until volumes are disks, opening one fails.
+ */
+static const struct bdevsw zfs_bdevsw = {
+	.d_open = zfsdev_bopen,
+	.d_close = noclose,
+	.d_strategy = zfsdev_bstrategy,
+	.d_ioctl = noioctl,
+	.d_dump = nodump,
+	.d_psize = nosize,
+	.d_discard = nodiscard,
+	.d_flag = D_DISK | D_MPSAFE,
+};
 
 static const struct cdevsw zfs_cdevsw = {
 	.d_open = zfsdev_open,
@@ -119,6 +138,23 @@ zfsdev_open(dev_t dev, int flag, int mode, struct lwp *l)
 }
 
 static int
+zfsdev_bopen(dev_t dev, int flag, int mode, struct lwp *l)
+{
+
+	(void) dev, (void) flag, (void) mode, (void) l;
+	return (SET_ERROR(ENXIO));
+}
+
+static void
+zfsdev_bstrategy(struct buf *bp)
+{
+
+	bp->b_error = ENXIO;
+	bp->b_resid = bp->b_bcount;
+	biodone(bp);
+}
+
+static int
 zfsdev_fop_close(file_t *fp)
 {
 
@@ -166,7 +202,7 @@ zfsdev_attach(void)
 {
 	devmajor_t bmajor = NODEVMAJOR, cmajor = NODEVMAJOR;
 
-	return (devsw_attach(ZFS_DRIVER, NULL, &bmajor, &zfs_cdevsw,
+	return (devsw_attach(ZFS_DRIVER, &zfs_bdevsw, &bmajor, &zfs_cdevsw,
 	    &cmajor));
 }
 
@@ -174,7 +210,7 @@ void
 zfsdev_detach(void)
 {
 
-	devsw_detach(NULL, &zfs_cdevsw);
+	devsw_detach(&zfs_bdevsw, &zfs_cdevsw);
 }
 
 static int

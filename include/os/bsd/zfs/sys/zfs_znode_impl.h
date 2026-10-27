@@ -31,6 +31,7 @@
 #include <sys/zil.h>
 #include <sys/zfs_project.h>
 #include <sys/uio.h>
+#include <miscfs/genfs/genfs_node.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -46,6 +47,7 @@ extern "C" {
 	vnode_t		*z_vnode;       \
 	char		*z_cached_symlink;	\
 	struct lockf	*z_lockf;	\
+	struct genfs_node z_gnode;	\
 	uint64_t		z_uid;          \
 	uint64_t		z_gid;          \
 	uint64_t		z_gen;          \
@@ -90,8 +92,13 @@ typedef struct zfs_soft_state {
  */
 #define	ZTOV(ZP)	((ZP)->z_vnode)
 #define	ZTOI(ZP)	((ZP)->z_vnode)
-#define	VTOZ(VP)	((struct znode *)(VP)->v_data)
-#define	ITOZ(VP)	((struct znode *)(VP)->v_data)
+/*
+ * genfs takes a vnode's v_data to be its struct genfs_node, so v_data
+ * is the one in the znode, which the znode is found from.
+ */
+#define	VTOZ(VP)	\
+	container_of((struct genfs_node *)(VP)->v_data, struct znode, z_gnode)
+#define	ITOZ(VP)	VTOZ(VP)
 /*
  * NetBSD keeps one count of references to a vnode, where FreeBSD's
  * vhold() is a second, weaker one; a reference is what keeps the znode

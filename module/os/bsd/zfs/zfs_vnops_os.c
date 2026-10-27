@@ -522,17 +522,18 @@ mappedread(znode_t *zp, int nbytes, zfs_uio_t *uio)
 
 /*
  * Fill pages of a mapped file from the DMU.  With the object locked
- * only the resident pages can be had; otherwise the pages are found or
- * made busy, and the new ones read, under the range lock and with the
- * object unlocked.
+ * only the resident pages can be had, and they are handed back without
+ * being busied, as genfs_getpages() does and the fault code expects;
+ * otherwise the pages are found or made busy, and the new ones read,
+ * under the range lock and with the object unlocked.
  */
 static int
 zfs_getpages(void *v)
 {
 	struct vop_getpages_args *ap = v;
 	vnode_t *vp = ap->a_vp;
-	znode_t *zp = VTOZ(vp);
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	znode_t *zp;
+	zfsvfs_t *zfsvfs;
 	struct uvm_object *uobj = &vp->v_uobj;
 	struct vm_page **pgs = ap->a_m, *pg;
 	const bool memwrite = (ap->a_access_type & VM_PROT_WRITE) != 0;
@@ -542,10 +543,28 @@ zfs_getpages(void *v)
 	int i, npages, error = 0;
 	size_t len;
 
+	/* A reclaimed vnode has no znode to read from. */
+	if (__predict_false((atomic_load_relaxed(&vp->v_iflag) &
+	    VI_DEADCHECK) != 0)) {
+		mutex_enter(vp->v_interlock);
+		error = vdead_check(vp, VDEAD_NOWAIT);
+		mutex_exit(vp->v_interlock);
+		if (error != 0) {
+			if ((ap->a_flags & PGO_LOCKED) == 0)
+				rw_exit(uobj->vmobjlock);
+			return (error);
+		}
+	}
+	zp = VTOZ(vp);
+	zfsvfs = zp->z_zfsvfs;
+
 	if (ap->a_flags & PGO_LOCKED) {
-		uvn_findpages(uobj, start, ap->a_count, pgs, NULL,
-		    UFP_NOWAIT | UFP_NOALLOC | (memwrite ? UFP_NORDONLY : 0));
-		return (pgs[ap->a_centeridx] == NULL ? EBUSY : 0);
+		npages = *ap->a_count;
+		if (uvn_findpages(uobj, start, &npages, pgs, NULL,
+		    UFP_NOWAIT | UFP_NOALLOC | UFP_NOBUSY |
+		    (memwrite ? UFP_NORDONLY : 0)) == 0)
+			return (EBUSY);
+		return (0);
 	}
 	if (start + ((voff_t)ap->a_centeridx << PAGE_SHIFT) >= vp->v_size) {
 		rw_exit(uobj->vmobjlock);
@@ -785,8 +804,15 @@ zfs_lookup(vnode_t *dvp, const char *nm, vnode_t **vpp,
 
 	error = zfs_dirlook(zdp, nm, &zp);
 	zfs_exit(zfsvfs, FTAG);
-	if (error == 0)
+	if (error == 0) {
+		/*
+		 * zfs_dirlook() hands "." back without a hold, which
+		 * FreeBSD's caller adds; a lookup returns it referenced.
+		 */
+		if (zp == zdp)
+			vref(dvp);
 		*vpp = ZTOV(zp);
+	}
 
 	/*
 	 * A name that is not there is what a create or a rename's target
@@ -1129,7 +1155,9 @@ out:
 
 /*
  * Look a name up for the replay of the intent log, which removes and
- * renames by name: the vnode comes back locked exclusively.
+ * renames by name: the vnode comes back locked exclusively.  A name
+ * that is not there is EJUSTRETURN to a rename's target, as a lookup
+ * through namei() would say.
  */
 static int
 zfs_lookup_internal(znode_t *dzp, const char *name, vnode_t **vpp,
@@ -1139,7 +1167,6 @@ zfs_lookup_internal(znode_t *dzp, const char *name, vnode_t **vpp,
 	znode_t *zp;
 	int error;
 
-	(void) nameiop;
 	cnp->cn_nameptr = name;
 	cnp->cn_namelen = strlen(name);
 	cnp->cn_flags = ISLASTCN;
@@ -1148,8 +1175,12 @@ zfs_lookup_internal(znode_t *dzp, const char *name, vnode_t **vpp,
 		return (error);
 	error = zfs_dirlook(dzp, name, &zp);
 	zfs_exit(zfsvfs, FTAG);
+	if (error == ENOENT && (nameiop == CREATE || nameiop == RENAME))
+		return (EJUSTRETURN);
 	if (error != 0)
 		return (error);
+	if (zp == dzp)
+		zhold(zp);	/* "." comes back without one */
 	*vpp = ZTOV(zp);
 	vn_lock(*vpp, LK_EXCLUSIVE | LK_RETRY);
 	return (0);
@@ -1415,9 +1446,10 @@ zfs_rmdir_(vnode_t *dvp, vnode_t *vp, const char *name, cred_t *cr)
 
 	dmu_tx_commit(tx);
 
-	if (zfsvfs->z_use_namecache)
+	if (zfsvfs->z_use_namecache) {
 		cache_purge(dvp);
 		cache_purge(vp);
+	}
 out:
 	if (error == 0 && zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
 		error = zil_commit(zilog, 0);
@@ -2729,118 +2761,111 @@ out:
 }
 
 /*
- * We acquire all but fdvp locks using non-blocking acquisitions.  If we
- * fail to acquire any lock in the path we will drop all held locks,
- * acquire the new lock in a blocking fashion, and then release it and
- * restart the rename.  This acquire/release step ensures that we do not
- * spin on a lock waiting for release.  On error release all vnode locks
- * and decrement references the way tmpfs_rename() would do.
+ * Lock the four vnodes of a rename.  The source directory is locked
+ * waiting and the rest without; when one is busy, all are let go, that
+ * one is waited for and let go too, and the whole starts again, so that
+ * nothing is held while waiting.  NetBSD's vnode locks do not recurse,
+ * as FreeBSD's ZFS vnodes' do, so a vnode that is two of the four -- the
+ * one directory, or two names of one file -- is locked once.  On error
+ * nothing is left locked.
  */
 static int
 zfs_rename_relock(struct vnode *sdvp, struct vnode **svpp,
     struct vnode *tdvp, struct vnode **tvpp,
     const struct componentname *scnp, const struct componentname *tcnp)
 {
-	struct vnode	*nvp, *svp, *tvp;
-	znode_t		*sdzp, *tdzp, *szp, *tzp;
-	int		error;
+	struct vnode *svp, *tvp, *busy;
+	znode_t *szp, *tzp;
+	int error;
 
 	VOP_UNLOCK(tdvp);
 	if (*tvpp != NULL && *tvpp != tdvp)
 		VOP_UNLOCK(*tvpp);
 
 relock:
-	error = vn_lock(sdvp, LK_EXCLUSIVE);
-	if (error)
-		goto out;
-	error = vn_lock(tdvp, LK_EXCLUSIVE | LK_NOWAIT);
-	if (error != 0) {
+	if ((error = vn_lock(sdvp, LK_EXCLUSIVE)) != 0)
+		return (error);
+	if (tdvp != sdvp &&
+	    (error = vn_lock(tdvp, LK_EXCLUSIVE | LK_NOWAIT)) != 0) {
 		VOP_UNLOCK(sdvp);
 		if (error != EBUSY)
-			goto out;
-		error = vn_lock(tdvp, LK_EXCLUSIVE);
-		if (error)
-			goto out;
+			return (error);
+		if ((error = vn_lock(tdvp, LK_EXCLUSIVE)) != 0)
+			return (error);
 		VOP_UNLOCK(tdvp);
 		goto relock;
 	}
-	tdzp = VTOZ(tdvp);
-	sdzp = VTOZ(sdvp);
 
-	error = zfs_rename_relock_lookup(sdzp, scnp, &szp, tdzp, tcnp, &tzp);
-	if (error != 0) {
-		VOP_UNLOCK(sdvp);
-		VOP_UNLOCK(tdvp);
-		goto out;
-	}
+	error = zfs_rename_relock_lookup(VTOZ(sdvp), scnp, &szp, VTOZ(tdvp),
+	    tcnp, &tzp);
+	if (error != 0)
+		goto unlock_dirs;
 	svp = ZTOV(szp);
 	tvp = tzp != NULL ? ZTOV(tzp) : NULL;
 
 	/*
-	 * Now try acquire locks on svp and tvp.
+	 * Neither file can be one of the directories: that is a directory
+	 * moved into itself, or a "." or ".." the lookup let through.
 	 */
-	nvp = svp;
-	error = vn_lock(nvp, LK_EXCLUSIVE | LK_NOWAIT);
-	if (error != 0) {
-		VOP_UNLOCK(sdvp);
-		VOP_UNLOCK(tdvp);
+	if (svp == sdvp || svp == tdvp || tvp == sdvp || tvp == tdvp) {
+		vrele(svp);
 		if (tvp != NULL)
 			vrele(tvp);
-		if (error != EBUSY) {
-			vrele(nvp);
-			goto out;
-		}
-		error = vn_lock(nvp, LK_EXCLUSIVE);
-		if (error != 0) {
-			vrele(nvp);
-			goto out;
-		}
-		VOP_UNLOCK(nvp);
-		/*
-		 * Concurrent rename race.
-		 * XXX ?
-		 */
-		if (nvp == tdvp) {
-			vrele(nvp);
-			error = SET_ERROR(EINVAL);
-			goto out;
-		}
+		error = SET_ERROR(EINVAL);
+		goto unlock_dirs;
+	}
+
+	busy = NULL;
+	if ((error = vn_lock(svp, LK_EXCLUSIVE | LK_NOWAIT)) != 0) {
+		busy = svp;
+	} else if (tvp != NULL && tvp != svp &&
+	    (error = vn_lock(tvp, LK_EXCLUSIVE | LK_NOWAIT)) != 0) {
+		VOP_UNLOCK(svp);
+		busy = tvp;
+	}
+	if (busy != NULL) {
+		VOP_UNLOCK(sdvp);
+		if (tdvp != sdvp)
+			VOP_UNLOCK(tdvp);
+		if (error == EBUSY &&
+		    (error = vn_lock(busy, LK_EXCLUSIVE)) == 0)
+			VOP_UNLOCK(busy);
 		vrele(*svpp);
-		*svpp = nvp;
+		*svpp = svp;
+		if (*tvpp != NULL)
+			vrele(*tvpp);
+		*tvpp = tvp;
+		if (error != 0)
+			return (error);
 		goto relock;
 	}
-	vrele(*svpp);
-	*svpp = nvp;
 
+	vrele(*svpp);
+	*svpp = svp;
 	if (*tvpp != NULL)
 		vrele(*tvpp);
-	*tvpp = NULL;
-	if (tvp != NULL) {
-		nvp = tvp;
-		error = vn_lock(nvp, LK_EXCLUSIVE | LK_NOWAIT);
-		if (error != 0) {
-			VOP_UNLOCK(sdvp);
-			VOP_UNLOCK(tdvp);
-			VOP_UNLOCK(*svpp);
-			if (error != EBUSY) {
-				vrele(nvp);
-				goto out;
-			}
-			error = vn_lock(nvp, LK_EXCLUSIVE);
-			if (error != 0) {
-				vrele(nvp);
-				goto out;
-			}
-			vput(nvp);
-			goto relock;
-		}
-		*tvpp = nvp;
-	}
-
+	*tvpp = tvp;
 	return (0);
 
-out:
+unlock_dirs:
+	VOP_UNLOCK(sdvp);
+	if (tdvp != sdvp)
+		VOP_UNLOCK(tdvp);
 	return (error);
+}
+
+/* Let go of what zfs_rename_relock() locked, each vnode once. */
+static void
+zfs_rename_unlock(struct vnode *sdvp, struct vnode *svp, struct vnode *tdvp,
+    struct vnode *tvp)
+{
+
+	VOP_UNLOCK(sdvp);
+	if (tdvp != sdvp)
+		VOP_UNLOCK(tdvp);
+	VOP_UNLOCK(svp);
+	if (tvp != NULL && tvp != svp)
+		VOP_UNLOCK(tvp);
 }
 
 /*
@@ -2950,13 +2975,12 @@ zfs_do_rename(vnode_t *sdvp, vnode_t **svpp, struct componentname *scnp,
 	}
 
 	error = zfs_do_rename_impl(sdvp, svpp, scnp, tdvp, tvpp, tcnp, cr);
-	VOP_UNLOCK(sdvp);
-	VOP_UNLOCK(*svpp);
+	zfs_rename_unlock(sdvp, *svpp, tdvp, *tvpp);
+	return (error);
 out:
 	if (*tvpp != NULL)
 		VOP_UNLOCK(*tvpp);
-	if (tdvp != *tvpp)
-		VOP_UNLOCK(tdvp);
+	VOP_UNLOCK(tdvp);
 
 	return (error);
 }
@@ -4365,6 +4389,71 @@ zfs_netbsd_ioctl(void *v)
 	    ap->a_fflag, ap->a_cred, NULL));
 }
 
+/*
+ * NFSv4 ACLs, which NetBSD's struct acl carries as FreeBSD's does; the
+ * POSIX.1e kind ZFS does not keep.
+ */
+static int
+zfs_netbsd_getacl(void *v)
+{
+	struct vop_getacl_args *ap = v;
+	vsecattr_t vsecattr;
+	int error;
+
+	if (ap->a_type != ACL_TYPE_NFS4)
+		return (SET_ERROR(EINVAL));
+	vsecattr.vsa_mask = VSA_ACE | VSA_ACECNT;
+	if ((error = zfs_getsecattr(VTOZ(ap->a_vp), &vsecattr, 0,
+	    ap->a_cred)) != 0)
+		return (error);
+	error = acl_from_aces(ap->a_aclp, vsecattr.vsa_aclentp,
+	    vsecattr.vsa_aclcnt);
+	if (vsecattr.vsa_aclentp != NULL)
+		kmem_free(vsecattr.vsa_aclentp, vsecattr.vsa_aclentsz);
+	return (error);
+}
+
+static int
+zfs_netbsd_setacl(void *v)
+{
+	struct vop_setacl_args *ap = v;
+	vsecattr_t vsecattr;
+	int aclbsize, error;
+	void *aaclp;
+
+	if (ap->a_type != ACL_TYPE_NFS4)
+		return (SET_ERROR(EINVAL));
+	if (ap->a_aclp == NULL)
+		return (SET_ERROR(EINVAL));
+	if (ap->a_aclp->acl_cnt < 1 || ap->a_aclp->acl_cnt > MAX_ACL_ENTRIES)
+		return (SET_ERROR(EINVAL));
+	/*
+	 * chmod(2) may split each entry in two and add six, which must
+	 * still fit.
+	 */
+	if (ap->a_aclp->acl_cnt * 2 + 6 > ACL_MAX_ENTRIES)
+		return (SET_ERROR(ENOSPC));
+	if ((error = acl_nfs4_check(ap->a_aclp,
+	    ap->a_vp->v_type == VDIR)) != 0)
+		return (error);
+
+	vsecattr.vsa_mask = VSA_ACE;
+	aclbsize = ap->a_aclp->acl_cnt * sizeof (ace_t);
+	aaclp = vsecattr.vsa_aclentp = kmem_alloc(aclbsize, KM_SLEEP);
+	vsecattr.vsa_aclentsz = aclbsize;
+	aces_from_acl(vsecattr.vsa_aclentp, &vsecattr.vsa_aclcnt, ap->a_aclp);
+	error = zfs_setsecattr(VTOZ(ap->a_vp), &vsecattr, 0, ap->a_cred);
+	kmem_free(aaclp, aclbsize);
+	return (error);
+}
+
+static int
+zfs_netbsd_aclcheck(void *v)
+{
+
+	return (SET_ERROR(EOPNOTSUPP));
+}
+
 static int
 zfs_netbsd_print(void *v)
 {
@@ -4440,6 +4529,9 @@ const struct vnodeopv_entry_desc zfs_vnodeop_entries[] = {
 	{ &vop_bwrite_desc,		genfs_nullop },
 	{ &vop_getpages_desc,		zfs_getpages },
 	{ &vop_putpages_desc,		genfs_putpages },
+	{ &vop_getacl_desc,		zfs_netbsd_getacl },
+	{ &vop_setacl_desc,		zfs_netbsd_setacl },
+	{ &vop_aclcheck_desc,		zfs_netbsd_aclcheck },
 	{ NULL, NULL }
 };
 

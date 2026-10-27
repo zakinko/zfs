@@ -13,6 +13,7 @@
 #include <sys/module.h>
 #include <sys/param.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 
 #include <errno.h>
 #include <libintl.h>
@@ -110,12 +111,22 @@ zpool_nextboot(libzfs_handle_t *hdl, uint64_t pool_guid, uint64_t dev_guid,
 }
 
 /*
- * The version the kernel is running, which it does not report yet.
- * Callers take NULL for "not known" and say so.
+ * The version the kernel is running, from the sysctl the module makes;
+ * NULL, with errno set, when it is not loaded.
  */
 char *
 zfs_version_kernel(void)
 {
-	errno = ENOTSUP;
-	return (NULL);
+	size_t l;
+	char *version;
+
+	if (sysctlbyname("vfs.zfs.version.module", NULL, &l, NULL, 0) == -1)
+		return (NULL);
+	if ((version = malloc(l)) == NULL)
+		return (NULL);
+	if (sysctlbyname("vfs.zfs.version.module", version, &l, NULL, 0) == -1) {
+		free(version);
+		return (NULL);
+	}
+	return (version);
 }

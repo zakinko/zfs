@@ -71,9 +71,11 @@ zfs_mod_supported_prop(const char *name, zfs_type_t type,
  * module, via sysfs, to determine which properties are supported.
  *
  * The equivalent _can_ be done on FreeBSD by way of the sysctl
- * tree, but this has not been done yet.
+ * tree, but this has not been done yet.  NetBSD has no sysfs either,
+ * and asking it would find no property supported.
  */
-#if defined(_KERNEL) || defined(LIB_ZPOOL_BUILD) || defined(__FreeBSD__)
+#if defined(_KERNEL) || defined(LIB_ZPOOL_BUILD) || defined(__FreeBSD__) || \
+	defined(__NetBSD__)
 	(void) name, (void) type, (void) sfeatures;
 	return (B_TRUE);
 #else

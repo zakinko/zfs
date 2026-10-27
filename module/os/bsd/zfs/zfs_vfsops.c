@@ -1064,7 +1064,7 @@ zfs_domount(struct mount *mp, const char *osname, const char *opts)
 	mp->mnt_stat.f_iosize = recordsize;
 
 	mp->mnt_data = zfsvfs;
-	mp->mnt_flag |= MNT_LOCAL;
+	mp->mnt_flag |= MNT_LOCAL | MNT_NFS4ACLS;
 	mp->mnt_iflag |= IMNT_MPSAFE | IMNT_DTYPE;
 	mp->mnt_stat.f_namemax =
 	    zfsvfs->z_longname ? (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
