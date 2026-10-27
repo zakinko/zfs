@@ -26,6 +26,7 @@
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/module.h>
+#include <sys/mount.h>
 #include <sys/zfs_context.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_vfsops.h>
@@ -47,6 +48,7 @@ extern void zstd_fini(void);
 extern void spl_taskq_init(void);
 extern void spl_taskq_fini(void);
 extern void spl_sysctl_fini(void);
+extern struct vfsops zfs_vfsops;
 
 static int zfsdev_fop_ioctl(file_t *, u_long, void *);
 static int zfsdev_fop_close(file_t *);
@@ -189,6 +191,10 @@ zfs_modinit(void)
 		goto zstd_failed;
 	if ((error = zfs_kmod_init()) != 0)
 		goto kmod_failed;
+	if ((error = vfs_attach(&zfs_vfsops)) != 0) {
+		zfs_kmod_fini();
+		goto kmod_failed;
+	}
 	printf("ZFS filesystem version: " ZPL_VERSION_STRING "\n");
 	printf("ZFS storage pool version: features support ("
 	    SPA_VERSION_STRING "), " ZFS_META_GITREV "\n");
@@ -210,6 +216,8 @@ zfs_modfini(void)
 {
 
 	if (zfs_busy() || zvol_busy() || zio_injection_enabled)
+		return (SET_ERROR(EBUSY));
+	if (vfs_detach(&zfs_vfsops) != 0)
 		return (SET_ERROR(EBUSY));
 	zfs_kmod_fini();
 	zstd_fini();

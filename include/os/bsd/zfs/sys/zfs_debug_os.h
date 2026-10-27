@@ -13,7 +13,15 @@
 #ifndef _SYS_ZFS_DEBUG_OS_H
 #define	_SYS_ZFS_DEBUG_OS_H
 
-/* Not yet an SDT probe, as FreeBSD's is; the error itself. */
+/*
+ * NetBSD's own, which fires the sdt:::set-error probe where the kernel
+ * has DTrace hooks, as its file systems' errors do.
+ */
+#ifdef _KERNEL
+#include <sys/sdt.h>
+#endif
+#ifndef SET_ERROR
 #define	SET_ERROR(err)	(err)
+#endif
 
 #endif	/* _SYS_ZFS_DEBUG_OS_H */

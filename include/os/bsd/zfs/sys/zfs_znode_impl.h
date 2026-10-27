@@ -45,6 +45,7 @@ extern "C" {
 	struct zfsvfs	*z_zfsvfs;      \
 	vnode_t		*z_vnode;       \
 	char		*z_cached_symlink;	\
+	struct lockf	*z_lockf;	\
 	uint64_t		z_uid;          \
 	uint64_t		z_gid;          \
 	uint64_t		z_gen;          \

@@ -116,10 +116,12 @@ zfs_fsync(znode_t *zp, int syncflag, cred_t *cr)
 }
 
 
-#if defined(SEEK_HOLE) && defined(SEEK_DATA)
+#if (defined(SEEK_HOLE) && defined(SEEK_DATA)) || defined(__NetBSD__)
 /*
  * Lseek support for finding holes (cmd == SEEK_HOLE) and
  * data (cmd == SEEK_DATA). "off" is an in/out parameter.
+ * NetBSD's lseek(2) has no such whence; it asks the same with the
+ * FIOSEEKHOLE and FIOSEEKDATA ioctls.
  */
 static int
 zfs_holey_common(znode_t *zp, ulong_t cmd, loff_t *off)

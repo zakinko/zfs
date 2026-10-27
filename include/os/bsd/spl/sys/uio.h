@@ -30,13 +30,6 @@
 #define	UIO_DIO_DENY		0x0004
 #define	UIO_DIO_CKSUM_RETRIED	0x0008
 
-/*
- * FreeBSD's segment for a page-in that needs no copy.  NetBSD pages in
- * through its own path and never builds such a uio, so it is a value
- * no uio has.
- */
-#define	UIO_NOCOPY		((enum uio_seg)2)
-
 typedef struct iovec	iovec_t;
 typedef enum uio_seg	zfs_uio_seg_t;
 typedef enum uio_rw	zfs_uio_rw_t;

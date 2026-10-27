@@ -39,6 +39,17 @@ enum symfollow { NO_FOLLOW = NOFOLLOW };
 #define	vn_vfsunlock(vp)	do { } while (0)
 #define	vn_matchops(vp, vops)	((vp)->v_op == (vops))
 
+/*
+ * FreeBSD's assertions on the vnode lock, in the code taken from it.
+ * NetBSD's VOP_ISLOCKED() answers LK_EXCLUSIVE or LK_SHARED, or 0.
+ */
+#define	ASSERT_VOP_LOCKED(vp, str)	ASSERT(VOP_ISLOCKED(vp) != 0)
+#define	ASSERT_VOP_ELOCKED(vp, str)	ASSERT(VOP_ISLOCKED(vp) == LK_EXCLUSIVE)
+#define	ASSERT_VOP_IN_SEQC(vp)		((void)0)
+/* NetBSD's vcache allocates a vnode without a reserve to draw on. */
+#define	getnewvnode_reserve()		((void)0)
+#define	getnewvnode_drop_reserve()	((void)0)
+
 #define	VN_HOLD(v)		vref(v)
 #define	VN_RELE(v)		vrele(v)
 #define	VN_URELE(v)		vput(v)

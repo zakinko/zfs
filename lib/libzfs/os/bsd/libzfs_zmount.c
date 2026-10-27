@@ -25,20 +25,10 @@
 
 /*
  * mount(2) takes the file system its own argument struct, rather than
- * a string of options as nmount(2) does on FreeBSD.  This is the one
- * NetBSD's ZFS has always used, and the kernel side declares its size
- * as vfs_min_mount_data, so the two have to agree.
+ * a string of options as nmount(2) does on FreeBSD; the kernel side
+ * shares its definition.
  */
-struct zfs_args {
-	char	fspec[MAXNAMELEN - 1];
-	char	dataptr[MAXPATHLEN];
-	char	optptr[MAXPATHLEN];
-	char	*fstype;
-	int	mflag;
-	int	datalen;
-	int	optlen;
-	int	flags;
-};
+#include <os/bsd/zfs/sys/zfs_mount_args.h>
 
 int
 do_mount(zfs_handle_t *zhp, const char *mntpt, const char *opts, int flags)

@@ -29,10 +29,6 @@
 #define	_ACL_ACLENT_ENABLED	0x1
 #define	_ACL_ACE_ENABLED	0x2
 
-#define	_FIOFFS			(INT_MIN)
-#define	_FIOGDIO		(INT_MIN + 1)
-#define	_FIOSDIO		(INT_MIN + 2)
-
 #define	F_SEEK_DATA		FIOSEEKDATA
 #define	F_SEEK_HOLE		FIOSEEKHOLE
 

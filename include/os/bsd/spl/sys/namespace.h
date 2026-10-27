@@ -358,4 +358,34 @@
 #define	z_compress_level	openzfs_z_compress_level
 #define	z_uncompress	openzfs_z_uncompress
 
+/* The ZPL's, which the solaris module defines as well. */
+#define	ace_trivial_common	openzfs_ace_trivial_common
+#define	acl_trivial_access_masks	openzfs_acl_trivial_access_masks
+#define	acl_trivial_create	openzfs_acl_trivial_create
+#define	cmp2acls	openzfs_cmp2acls
+#define	ksort	openzfs_ksort
+#define	secpolicy_basic_link	openzfs_secpolicy_basic_link
+#define	secpolicy_fs_mount	openzfs_secpolicy_fs_mount
+#define	secpolicy_fs_mount_clearopts	openzfs_secpolicy_fs_mount_clearopts
+#define	secpolicy_fs_owner	openzfs_secpolicy_fs_owner
+#define	secpolicy_fs_unmount	openzfs_secpolicy_fs_unmount
+#define	secpolicy_setid_clear	openzfs_secpolicy_setid_clear
+#define	secpolicy_setid_setsticky_clear	openzfs_secpolicy_setid_setsticky_clear
+#define	secpolicy_smb	openzfs_secpolicy_smb
+#define	secpolicy_vnode_access	openzfs_secpolicy_vnode_access
+#define	secpolicy_vnode_access2	openzfs_secpolicy_vnode_access2
+#define	secpolicy_vnode_any_access	openzfs_secpolicy_vnode_any_access
+#define	secpolicy_vnode_chown	openzfs_secpolicy_vnode_chown
+#define	secpolicy_vnode_create_gid	openzfs_secpolicy_vnode_create_gid
+#define	secpolicy_vnode_owner	openzfs_secpolicy_vnode_owner
+#define	secpolicy_vnode_remove	openzfs_secpolicy_vnode_remove
+#define	secpolicy_vnode_setattr	openzfs_secpolicy_vnode_setattr
+#define	secpolicy_vnode_setdac	openzfs_secpolicy_vnode_setdac
+#define	secpolicy_vnode_setids_setgids	openzfs_secpolicy_vnode_setids_setgids
+#define	secpolicy_vnode_stky_modify	openzfs_secpolicy_vnode_stky_modify
+#define	secpolicy_xvattr	openzfs_secpolicy_xvattr
+#define	vfs_clearmntopt	openzfs_vfs_clearmntopt
+#define	vfs_optionisset	openzfs_vfs_optionisset
+#define	vfs_setmntopt	openzfs_vfs_setmntopt
+
 #endif	/* _SPL_SYS_NAMESPACE_H */

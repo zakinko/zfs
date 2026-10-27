@@ -67,7 +67,8 @@ SRCS+=	xdr.c \
 	xdr_mem.c
 
 #os/bsd/spl
-SRCS+=	list.c \
+SRCS+=	acl_common.c \
+	list.c \
 	spl_kmem.c \
 	spl_kstat.c \
 	spl_misc.c \
@@ -88,8 +89,15 @@ SRCS+=	abd_os.c \
 	vdev_label_os.c \
 	zfs_debug.c \
 	zfs_file_os.c \
+	zfs_acl.c \
+	zfs_ctldir.c \
+	zfs_dir.c \
 	zfs_ioctl_os.c \
-	zfs_racct.c
+	zfs_racct.c \
+	zfs_vfsops.c \
+	zfs_vnops_os.c \
+	zfs_znode_os.c \
+	zvol_os.c
 
 #nvpair
 SRCS+=	fnvpair.c \
