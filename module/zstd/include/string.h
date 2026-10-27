@@ -49,6 +49,9 @@ extern "C" {
 #include <sys/systm.h>    /* memcpy, memset */
 #elif defined(__linux__)
 #include <linux/string.h> /* memcpy, memset */
+#elif defined(__NetBSD__)
+#include <sys/types.h>
+#include <lib/libkern/libkern.h>	/* memcpy, memset */
 #else
 #error "Unsupported platform"
 #endif

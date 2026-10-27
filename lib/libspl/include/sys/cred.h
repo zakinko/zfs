@@ -30,6 +30,7 @@ extern uid_t crgetruid(cred_t *cr);
 extern gid_t crgetgid(cred_t *cr);
 extern int crgetngroups(cred_t *cr);
 extern gid_t *crgetgroups(cred_t *cr);
+#define	crgetgroup(cr, i)	(crgetgroups(cr)[i])
 
 #define	kcred		NULL
 #define	CRED()		NULL

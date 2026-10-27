@@ -303,7 +303,7 @@ blake3_per_cpu_ctx_fini(void)
 
 #define	IMPL_FMT(impl, i)	(((impl) == (i)) ? "[%s] " : "%s ")
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__NetBSD__)
 
 static int
 blake3_param_get(char *buffer, zfs_kernel_param_t *unused)

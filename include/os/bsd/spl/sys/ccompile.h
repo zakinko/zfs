@@ -21,7 +21,11 @@
  */
 
 #include <sys/types.h>
+#if defined(_KERNEL)
+#include <sys/errno.h>
+#else
 #include <errno.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -70,6 +74,38 @@ extern "C" {
 
 typedef off_t loff_t;
 
+#if defined(_KERNEL)
+/*
+ * Linux's module plumbing, which the common code names and which a
+ * NetBSD module has no use for: a module's symbols are all visible to
+ * the modules that depend on it, and its entry point is modcmd.
+ */
+/*
+ * Linux's alignment of a member to its own cache line.  NetBSD's
+ * __cacheline_aligned also places the object in a section of its own,
+ * which a structure member cannot be.
+ */
+#define	____cacheline_aligned	__aligned(COHERENCY_UNIT)
+#define	zfs_fallthrough	__attribute__((__fallthrough__))
+#define	noinline	__noinline
+#define	likely(x)	__predict_true(x)
+#define	unlikely(x)	__predict_false(x)
+#define	EXPORT_SYMBOL(x)
+#define	__init
+#define	__exit
+#define	asm		__asm
+#define	MUTEX_NOLOCKDEP	0
+#define	RW_NOLOCKDEP	0
+#define	param_set_charp(a, b)	(0)
+#define	ATTR_UID	AT_UID
+#define	ATTR_GID	AT_GID
+#define	ATTR_MODE	AT_MODE
+#define	ATTR_XVATTR	AT_XVATTR
+#define	ATTR_CTIME	AT_CTIME
+#define	ATTR_MTIME	AT_MTIME
+#define	ATTR_ATIME	AT_ATIME
+#else	/* !_KERNEL */
+
 /* The BSDs have had 64 bit file offsets all along. */
 #define	open64		open
 #define	pread64		pread
@@ -81,6 +117,7 @@ typedef off_t loff_t;
 #define	statvfs64	statvfs
 #define	readdir64	readdir
 #define	dirent64	dirent
+#endif	/* _KERNEL */
 
 #ifdef	__cplusplus
 }
@@ -88,8 +125,10 @@ typedef off_t loff_t;
 
 /*
  * The common code reaches for these without including a header for them.
- * FreeBSD answers the same way, from its own ccompile.h.
+ * FreeBSD answers the same way, from its own ccompile.h.  The kernel has
+ * them from <sys/sysmacros.h>, which zfs_context.h includes.
  */
+#if !defined(_KERNEL)
 #define	ARRAY_SIZE(a)		(sizeof (a) / sizeof (a[0]))
 #define	ABS(a)			((a) < 0 ? -(a) : (a))
 #define	DIV_ROUND_UP(n, d)	(((n) + (d) - 1) / (d))
@@ -101,5 +140,7 @@ typedef off_t loff_t;
 #define	P2NPHASE(x, align)	(-(x) & ((align) - 1))
 #define	P2BOUNDARY(off, len, align) \
 	(((off) ^ ((off) + (len) - 1)) > (align) - 1)
+
+#endif	/* !_KERNEL */
 
 #endif	/* _SYS_CCOMPILE_H */

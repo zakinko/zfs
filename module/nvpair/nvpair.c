@@ -3300,6 +3300,21 @@ nvs_xdr_nvp_##type(XDR *xdrs, void *ptr)	\
 	return (xdr_##type(xdrs, ptr));		\
 }
 
+#elif defined(__NetBSD__)
+
+/*
+ * NetBSD's xdrproc_t, in libc and in the kernel alike, takes the
+ * object as a const pointer.  NetBSD defines XDR_CONTROL too, which
+ * would otherwise choose the variadic form below; calling a variadic
+ * function through this non-variadic type is undefined.
+ */
+#define	NVS_BUILD_XDRPROC_T(type)		\
+static bool_t					\
+nvs_xdr_nvp_##type(XDR *xdrs, const void *ptr)	\
+{						\
+	return (xdr_##type(xdrs, (void *)(uintptr_t)ptr)); \
+}
+
 #elif !defined(_KERNEL) && defined(XDR_CONTROL) /* tirpc, FreeBSD < 16 */
 
 #define	NVS_BUILD_XDRPROC_T(type)		\

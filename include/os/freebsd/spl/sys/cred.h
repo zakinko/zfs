@@ -52,6 +52,7 @@ typedef struct ucred cred_t;
 #define	crgetgid(cr)		((cr)->cr_gid)
 #define	crgetgroups(cr)		((cr)->cr_groups)
 #define	crgetngroups(cr)	((cr)->cr_ngroups)
+#define	crgetgroup(cr, i)	((cr)->cr_groups[i])
 #define	crgetzoneid(cr) 	((cr)->cr_prison->pr_id)
 
 #ifdef	__cplusplus

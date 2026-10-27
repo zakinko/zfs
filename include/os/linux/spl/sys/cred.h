@@ -201,5 +201,6 @@ extern uid_t crgetruid(const cred_t *cr);
 extern gid_t crgetgid(const cred_t *cr);
 extern int crgetngroups(const cred_t *cr);
 extern gid_t *crgetgroups(const cred_t *cr);
+#define	crgetgroup(cr, i)	(crgetgroups(cr)[i])
 extern int groupmember(gid_t gid, const cred_t *cr);
 #endif  /* _SPL_CRED_H */

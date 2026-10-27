@@ -1,0 +1,285 @@
+# Build the kernel module for NetBSD.
+#
+#	make -f Makefile.netbsd S=/usr/src/sys
+#
+# NetBSD's own <bsd.kmodule.mk> does the work, as it does for every
+# module in sys/modules; S names the kernel source it is built against.
+
+SRCDIR=	${.CURDIR}
+INCDIR=	${.CURDIR:H}/include
+
+KMOD=	zfs
+
+.PATH:	${SRCDIR}/avl \
+	${SRCDIR}/lua \
+	${SRCDIR}/nvpair \
+	${SRCDIR}/icp/algs/blake3 \
+	${SRCDIR}/icp/algs/edonr \
+	${SRCDIR}/icp/algs/sha2 \
+	${SRCDIR}/os/bsd/spl \
+	${SRCDIR}/os/bsd/zfs \
+	${SRCDIR}/unicode \
+	${SRCDIR}/zcommon \
+	${SRCDIR}/zfs \
+	${SRCDIR}/zstd \
+	${SRCDIR}/zstd/lib/common \
+	${SRCDIR}/zstd/lib/compress \
+	${SRCDIR}/zstd/lib/decompress
+
+CPPFLAGS+= -I${INCDIR}
+CPPFLAGS+= -I${SRCDIR}/icp/include
+CPPFLAGS+= -I${INCDIR}/os/bsd
+CPPFLAGS+= -I${INCDIR}/os/bsd/spl
+CPPFLAGS+= -I${INCDIR}/os/bsd/zfs
+CPPFLAGS+= -I${SRCDIR}/zstd/include
+CPPFLAGS+= -include ${INCDIR}/sys/simd_config.h
+CPPFLAGS+= -include ${INCDIR}/os/bsd/spl/sys/ccompile.h
+CPPFLAGS+= -D_KERNEL -D__KERNEL__ -DBUILDING_ZFS -DNDEBUG
+# What configure defines for the userland build (config/always-system.m4).
+CPPFLAGS+= -DSYSTEM_BSD -DSYSTEM_NETBSD
+
+.if ${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH} == "powerpc" || \
+    ${MACHINE_ARCH:Mearm*} || ${MACHINE_ARCH:Mmips*} || \
+    ${MACHINE_ARCH} == "sparc"
+CPPFLAGS+= -DBITS_PER_LONG=32
+.else
+CPPFLAGS+= -DBITS_PER_LONG=64
+.endif
+
+#avl
+SRCS+=	avl.c
+
+# NetBSD's XDR, which libc and the kernel share; its own ZFS built it
+# into the solaris module the same way.
+.PATH:	${S}/../common/lib/libc/rpc
+SRCS+=	xdr.c \
+	xdr_array.c \
+	xdr_mem.c
+
+#nvpair
+SRCS+=	fnvpair.c \
+	nvpair.c \
+	nvpair_alloc_fixed.c \
+	nvpair_alloc_spl.c
+
+#zcommon
+SRCS+=	cityhash.c \
+	zfeature_common.c \
+	zfs_comutil.c \
+	zfs_deleg.c \
+	zfs_fletcher.c \
+	zfs_fletcher_superscalar4.c \
+	zfs_fletcher_superscalar.c \
+	zfs_namecheck.c \
+	zfs_prop.c \
+	zfs_valstr.c \
+	zpool_prop.c \
+	zprop_common.c
+
+#icp/algs/blake3
+SRCS+=	blake3.c \
+	blake3_generic.c \
+	blake3_impl.c
+#icp/algs/edonr
+SRCS+=	edonr.c
+#icp/algs/sha2
+SRCS+=	sha256_impl.c \
+	sha2_generic.c \
+	sha512_impl.c
+#lua
+SRCS+=	lapi.c \
+	lauxlib.c \
+	lbaselib.c \
+	lcode.c \
+	lcompat.c \
+	lcorolib.c \
+	lctype.c \
+	ldebug.c \
+	ldo.c \
+	lfunc.c \
+	lgc.c \
+	llex.c \
+	lmem.c \
+	lobject.c \
+	lopcodes.c \
+	lparser.c \
+	lstate.c \
+	lstring.c \
+	lstrlib.c \
+	ltable.c \
+	ltablib.c \
+	ltm.c \
+	lvm.c \
+	lzio.c
+#zfs
+SRCS+=	abd.c \
+	aggsum.c \
+	arc.c \
+	blake3_zfs.c \
+	blkptr.c \
+	bplist.c \
+	bpobj.c \
+	bptree.c \
+	bqueue.c \
+	brt.c \
+	btree.c \
+	dataset_kstats.c \
+	dbuf.c \
+	dbuf_stats.c \
+	ddt.c \
+	ddt_log.c \
+	ddt_stats.c \
+	ddt_zap.c \
+	dmu.c \
+	dmu_direct.c \
+	dmu_diff.c \
+	dmu_object.c \
+	dmu_objset.c \
+	dmu_recv.c \
+	dmu_redact.c \
+	dmu_send.c \
+	dmu_traverse.c \
+	dmu_tx.c \
+	dmu_zfetch.c \
+	dnode.c \
+	dnode_sync.c \
+	dsl_bookmark.c \
+	dsl_crypt.c \
+	dsl_dataset.c \
+	dsl_deadlist.c \
+	dsl_deleg.c \
+	dsl_destroy.c \
+	dsl_dir.c \
+	dsl_pool.c \
+	dsl_prop.c \
+	dsl_scan.c \
+	dsl_synctask.c \
+	dsl_userhold.c \
+	edonr_zfs.c \
+	fm.c \
+	gzip.c \
+	lz4.c \
+	lz4_zfs.c \
+	lzjb.c \
+	metaslab.c \
+	mmp.c \
+	multilist.c \
+	objlist.c \
+	pathname.c \
+	range_tree.c \
+	refcount.c \
+	rrwlock.c \
+	sa.c \
+	sha2_zfs.c \
+	skein_zfs.c \
+	spa.c \
+	space_map.c \
+	space_reftree.c \
+	spa_checkpoint.c \
+	spa_config.c \
+	spa_errlog.c \
+	spa_history.c \
+	spa_log_spacemap.c \
+	spa_misc.c \
+	spa_stats.c \
+	txg.c \
+	u8_textprep.c \
+	uberblock.c \
+	unique.c \
+	vdev.c \
+	vdev_draid.c \
+	vdev_draid_rand.c \
+	vdev_file.c \
+	vdev_indirect_births.c \
+	vdev_indirect.c \
+	vdev_indirect_mapping.c \
+	vdev_initialize.c \
+	vdev_label.c \
+	vdev_mirror.c \
+	vdev_missing.c \
+	vdev_queue.c \
+	vdev_raidz.c \
+	vdev_raidz_math_avx2.c \
+	vdev_raidz_math_avx512bw.c \
+	vdev_raidz_math_avx512f.c \
+	vdev_raidz_math.c \
+	vdev_raidz_math_scalar.c \
+	vdev_raidz_math_sse2.c \
+	vdev_raidz_math_ssse3.c \
+	vdev_rebuild.c \
+	vdev_removal.c \
+	vdev_root.c \
+	vdev_trim.c \
+	zap.c \
+	zap_fat.c \
+	zap_impl.c \
+	zap_leaf.c \
+	zap_micro.c \
+	zcp.c \
+	zcp_get.c \
+	zcp_global.c \
+	zcp_iter.c \
+	zcp_set.c \
+	zcp_synctask.c \
+	zfeature.c \
+	zfs_byteswap.c \
+	zfs_chksum.c \
+	zfs_fm.c \
+	zfs_fuid.c \
+	zfs_impl.c \
+	zfs_ioctl.c \
+	zfs_log.c \
+	zfs_onexit.c \
+	zfs_quota.c \
+	zfs_ratelimit.c \
+	zfs_replay.c \
+	zfs_rlock.c \
+	zfs_sa.c \
+	zfs_vnops.c \
+	zfs_znode.c \
+	zil.c \
+	zio.c \
+	zio_checksum.c \
+	zio_compress.c \
+	zio_crypt.c \
+	zio_inject.c \
+	zle.c \
+	zrlock.c \
+	zthr.c \
+	zvol.c
+#zstd
+SRCS+=	zfs_zstd.c
+#zstd/common
+SRCS+=	entropy_common.c \
+	error_private.c \
+	fse_decompress.c \
+	pool.c \
+	zstd_common.c \
+#zstd/compress
+SRCS+=	fse_compress.c \
+	hist.c \
+	huf_compress.c \
+	zstd_compress.c \
+	zstd_compress_literals.c \
+	zstd_compress_sequences.c \
+	zstd_compress_superblock.c \
+	zstd_double_fast.c \
+	zstd_fast.c \
+	zstd_lazy.c \
+	zstd_ldm.c \
+	zstd_opt.c \
+	zstd_preSplit.c
+#zstd/decompress
+SRCS+=	huf_decompress.c \
+	zstd_ddict.c \
+	zstd_decompress_block.c \
+	zstd_decompress.c
+
+# spa_history.c records the source's git revision, which the top-level
+# build generates for Linux; here it is made in the object directory.
+DPSRCS+=	zfs_gitrev.h
+CLEANFILES+=	zfs_gitrev.h
+zfs_gitrev.h:
+	sh ${.CURDIR:H}/scripts/make_gitrev.sh ${.TARGET}
+
+.include <bsd.kmodule.mk>

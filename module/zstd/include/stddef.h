@@ -48,6 +48,9 @@ extern "C" {
 #include <sys/types.h>
 #elif defined(__linux__)
 #include <linux/types.h>
+#elif defined(__NetBSD__)
+#include <sys/types.h>
+#include <sys/stddef.h>
 #else
 #error "Unsupported platform"
 #endif

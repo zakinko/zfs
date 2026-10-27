@@ -1560,7 +1560,8 @@ spa_taskq_param_set(zio_type_t t, char *cfg)
 }
 
 static int
-spa_taskq_param_get(zio_type_t t, char *buf, boolean_t add_newline)
+spa_taskq_param_get(zio_type_t t, char *buf, size_t size,
+    boolean_t add_newline)
 {
 	int pos = 0;
 
@@ -1569,26 +1570,29 @@ spa_taskq_param_get(zio_type_t t, char *buf, boolean_t add_newline)
 	for (uint_t q = 0; q < ZIO_TASKQ_TYPES; q++) {
 		const zio_taskq_info_t *zti = &zio_taskqs[t][q];
 		if (zti->zti_mode == ZTI_MODE_FIXED)
-			pos += sprintf(&buf[pos], "%s%s,%u,%u", sep,
+			pos += kmem_scnprintf(&buf[pos], size - pos,
+			    "%s%s,%u,%u", sep,
 			    modes[zti->zti_mode], zti->zti_count,
 			    zti->zti_value);
 		else if (zti->zti_mode == ZTI_MODE_SCALE && zti->zti_value > 0)
-			pos += sprintf(&buf[pos], "%s%s,%u", sep,
+			pos += kmem_scnprintf(&buf[pos], size - pos,
+			    "%s%s,%u", sep,
 			    modes[zti->zti_mode], zti->zti_value);
 		else
-			pos += sprintf(&buf[pos], "%s%s", sep,
+			pos += kmem_scnprintf(&buf[pos], size - pos,
+			    "%s%s", sep,
 			    modes[zti->zti_mode]);
 		sep = " ";
 	}
 
-	if (add_newline)
+	if (add_newline && (size_t)pos + 1 < size)
 		buf[pos++] = '\n';
 	buf[pos] = '\0';
 
 	return (pos);
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__NetBSD__)
 static int
 spa_taskq_read_param_set(const char *val, zfs_kernel_param_t *kp)
 {
@@ -1601,7 +1605,7 @@ spa_taskq_read_param_set(const char *val, zfs_kernel_param_t *kp)
 static int
 spa_taskq_read_param_get(char *buf, zfs_kernel_param_t *kp)
 {
-	return (spa_taskq_param_get(ZIO_TYPE_READ, buf, TRUE));
+	return (spa_taskq_param_get(ZIO_TYPE_READ, buf, PAGE_SIZE, TRUE));
 }
 
 static int
@@ -1616,7 +1620,7 @@ spa_taskq_write_param_set(const char *val, zfs_kernel_param_t *kp)
 static int
 spa_taskq_write_param_get(char *buf, zfs_kernel_param_t *kp)
 {
-	return (spa_taskq_param_get(ZIO_TYPE_WRITE, buf, TRUE));
+	return (spa_taskq_param_get(ZIO_TYPE_WRITE, buf, PAGE_SIZE, TRUE));
 }
 
 static int
@@ -1631,7 +1635,7 @@ spa_taskq_free_param_set(const char *val, zfs_kernel_param_t *kp)
 static int
 spa_taskq_free_param_get(char *buf, zfs_kernel_param_t *kp)
 {
-	return (spa_taskq_param_get(ZIO_TYPE_FREE, buf, TRUE));
+	return (spa_taskq_param_get(ZIO_TYPE_FREE, buf, PAGE_SIZE, TRUE));
 }
 #else
 /*
@@ -1646,7 +1650,8 @@ spa_taskq_read_param(ZFS_MODULE_PARAM_ARGS)
 	char buf[SPA_TASKQ_PARAM_MAX];
 	int err;
 
-	(void) spa_taskq_param_get(ZIO_TYPE_READ, buf, FALSE);
+	(void) spa_taskq_param_get(ZIO_TYPE_READ, buf, sizeof (buf),
+	    FALSE);
 	err = sysctl_handle_string(oidp, buf, sizeof (buf), req);
 	if (err || req->newptr == NULL)
 		return (err);
@@ -1659,7 +1664,8 @@ spa_taskq_write_param(ZFS_MODULE_PARAM_ARGS)
 	char buf[SPA_TASKQ_PARAM_MAX];
 	int err;
 
-	(void) spa_taskq_param_get(ZIO_TYPE_WRITE, buf, FALSE);
+	(void) spa_taskq_param_get(ZIO_TYPE_WRITE, buf, sizeof (buf),
+	    FALSE);
 	err = sysctl_handle_string(oidp, buf, sizeof (buf), req);
 	if (err || req->newptr == NULL)
 		return (err);
@@ -1672,7 +1678,8 @@ spa_taskq_free_param(ZFS_MODULE_PARAM_ARGS)
 	char buf[SPA_TASKQ_PARAM_MAX];
 	int err;
 
-	(void) spa_taskq_param_get(ZIO_TYPE_FREE, buf, FALSE);
+	(void) spa_taskq_param_get(ZIO_TYPE_FREE, buf, sizeof (buf),
+	    FALSE);
 	err = sysctl_handle_string(oidp, buf, sizeof (buf), req);
 	if (err || req->newptr == NULL)
 		return (err);
@@ -8643,8 +8650,8 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing,
 		spa_strfree(oldvd->vdev_path);
 		oldvd->vdev_path = kmem_alloc(strlen(newvdpath) + 5,
 		    KM_SLEEP);
-		(void) sprintf(oldvd->vdev_path, "%s/old",
-		    newvdpath);
+		(void) snprintf(oldvd->vdev_path, strlen(newvdpath) + 5,
+		    "%s/old", newvdpath);
 		if (oldvd->vdev_devid != NULL) {
 			spa_strfree(oldvd->vdev_devid);
 			oldvd->vdev_devid = NULL;
