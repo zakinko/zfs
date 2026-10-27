@@ -36,6 +36,7 @@
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/zvol.h>
+#include <sys/zfs_netbsd_dev.h>
 #include <zfs_gitrev.h>
 
 MODULE(MODULE_CLASS_DRIVER, zfs, "zlib");
@@ -68,8 +69,15 @@ const struct fileops zfsdev_fileops = {
 };
 
 static dev_type_open(zfsdev_open);
+static dev_type_close(zfsdev_close);
+static dev_type_read(zfsdev_read);
+static dev_type_write(zfsdev_write);
+static dev_type_ioctl(zfsdev_ioctl);
+static dev_type_discard(zfsdev_discard);
 static dev_type_open(zfsdev_bopen);
-static dev_type_strategy(zfsdev_bstrategy);
+static dev_type_close(zfsdev_bclose);
+
+devmajor_t zfsdev_bmajor = NODEVMAJOR, zfsdev_cmajor = NODEVMAJOR;
 
 /*
  * conf/majors gives zfs a block major as well as a character one, the
@@ -78,27 +86,27 @@ static dev_type_strategy(zfsdev_bstrategy);
  */
 static const struct bdevsw zfs_bdevsw = {
 	.d_open = zfsdev_bopen,
-	.d_close = noclose,
-	.d_strategy = zfsdev_bstrategy,
-	.d_ioctl = noioctl,
+	.d_close = zfsdev_bclose,
+	.d_strategy = zvol_netbsd_strategy,
+	.d_ioctl = zvol_netbsd_ioctl,
 	.d_dump = nodump,
-	.d_psize = nosize,
-	.d_discard = nodiscard,
+	.d_psize = zvol_netbsd_psize,
+	.d_discard = zvol_netbsd_discard,
 	.d_flag = D_DISK | D_MPSAFE,
 };
 
 static const struct cdevsw zfs_cdevsw = {
 	.d_open = zfsdev_open,
-	.d_close = noclose,
-	.d_read = noread,
-	.d_write = nowrite,
-	.d_ioctl = noioctl,
+	.d_close = zfsdev_close,
+	.d_read = zfsdev_read,
+	.d_write = zfsdev_write,
+	.d_ioctl = zfsdev_ioctl,
 	.d_stop = nostop,
 	.d_tty = notty,
 	.d_poll = nopoll,
 	.d_mmap = nommap,
 	.d_kqfilter = nokqfilter,
-	.d_discard = nodiscard,
+	.d_discard = zfsdev_discard,
 	.d_flag = D_OTHER | D_MPSAFE,
 };
 
@@ -124,7 +132,8 @@ zfsdev_open(dev_t dev, int flag, int mode, struct lwp *l)
 	file_t *fp;
 	int error, fd;
 
-	(void) dev, (void) mode, (void) l;
+	if (minor(dev) != 0)
+		return (zvol_netbsd_open(dev, flag, mode, l));
 	if ((error = fd_allocfile(&fp, &fd)) != 0)
 		return (error);
 	mutex_enter(&zfsdev_state_lock);
@@ -137,21 +146,59 @@ zfsdev_open(dev_t dev, int flag, int mode, struct lwp *l)
 	return (fd_clone(fp, fd, flag, &zfsdev_fileops, zs));
 }
 
+/*
+ * Minor 0 never gets here past its open: fd_clone() gives that open a
+ * file of its own.  The rest are volumes.
+ */
+static int
+zfsdev_close(dev_t dev, int flag, int mode, struct lwp *l)
+{
+
+	return (zvol_netbsd_close(dev, flag, mode, l));
+}
+
+static int
+zfsdev_read(dev_t dev, struct uio *uio, int ioflag)
+{
+
+	return (zvol_netbsd_read(dev, uio, ioflag));
+}
+
+static int
+zfsdev_write(dev_t dev, struct uio *uio, int ioflag)
+{
+
+	return (zvol_netbsd_write(dev, uio, ioflag));
+}
+
+static int
+zfsdev_ioctl(dev_t dev, u_long cmd, void *data, int flag, struct lwp *l)
+{
+
+	return (zvol_netbsd_ioctl(dev, cmd, data, flag, l));
+}
+
+static int
+zfsdev_discard(dev_t dev, off_t pos, off_t len)
+{
+
+	return (zvol_netbsd_discard(dev, pos, len));
+}
+
 static int
 zfsdev_bopen(dev_t dev, int flag, int mode, struct lwp *l)
 {
 
-	(void) dev, (void) flag, (void) mode, (void) l;
-	return (SET_ERROR(ENXIO));
+	if (minor(dev) == 0)
+		return (SET_ERROR(ENXIO));
+	return (zvol_netbsd_open(dev, flag, mode, l));
 }
 
-static void
-zfsdev_bstrategy(struct buf *bp)
+static int
+zfsdev_bclose(dev_t dev, int flag, int mode, struct lwp *l)
 {
 
-	bp->b_error = ENXIO;
-	bp->b_resid = bp->b_bcount;
-	biodone(bp);
+	return (zvol_netbsd_close(dev, flag, mode, l));
 }
 
 static int
@@ -200,10 +247,9 @@ out:
 int
 zfsdev_attach(void)
 {
-	devmajor_t bmajor = NODEVMAJOR, cmajor = NODEVMAJOR;
 
-	return (devsw_attach(ZFS_DRIVER, &zfs_bdevsw, &bmajor, &zfs_cdevsw,
-	    &cmajor));
+	return (devsw_attach(ZFS_DRIVER, &zfs_bdevsw, &zfsdev_bmajor,
+	    &zfs_cdevsw, &zfsdev_cmajor));
 }
 
 void
