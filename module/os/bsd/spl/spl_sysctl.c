@@ -41,6 +41,7 @@ struct spl_param {
 	zfs_kernel_param_t	sp_kp;
 	spl_param_set_t		sp_set;
 	spl_param_get_t		sp_get;
+	char			sp_str[32];	/* param_set_charp() */
 };
 
 /*
@@ -50,6 +51,9 @@ struct spl_param {
  * here is shared and there is no lock to initialise yet.
  */
 static LIST_HEAD(, spl_param) spl_params = LIST_HEAD_INITIALIZER(spl_params);
+
+/* The module's sysctl log, which every SYSCTL_SETUP is handed. */
+static struct sysctllog **spl_sysctl_clog;
 
 /*
  * sysctl_createv() is called by its own name, past the macro of the
@@ -65,6 +69,7 @@ spl_sysctl_scope(struct sysctllog **clog, const char *scope)
 	char comp[SYSCTL_NAMELEN];
 	const char *p, *q;
 
+	spl_sysctl_clog = clog;
 	(void) (sysctl_createv)(clog, 0, NULL, &node, 0, CTLTYPE_NODE, "vfs",
 	    NULL, NULL, 0, NULL, 0, CTL_VFS, CTL_EOL);
 	for (p = scope; *p != '\0'; p = (*q == '_') ? q + 1 : q) {
@@ -172,6 +177,54 @@ param_set_uint(const char *buf, zfs_kernel_param_t *kp)
 }
 
 int
+param_set_int(const char *buf, zfs_kernel_param_t *kp)
+{
+	long v;
+	int error;
+
+	error = ddi_strtol(buf, NULL, 0, &v);
+	if (error != 0)
+		return (-error);
+	if (v < INT_MIN || v > INT_MAX)
+		return (-ERANGE);
+	*(int *)kp->zkp_arg = (int)v;
+	return (0);
+}
+
+int
+spl_param_set_u64(const char *buf, zfs_kernel_param_t *kp)
+{
+	unsigned long long v;
+	int error;
+
+	error = ddi_strtoull(buf, NULL, 0, &v);
+	if (error != 0)
+		return (-error);
+	*(uint64_t *)kp->zkp_arg = v;
+	return (0);
+}
+
+/*
+ * The string is kept in the tunable's own state and the variable
+ * pointed at it, so a new value replaces the old one in place and
+ * nothing is left to free.  The strings set this way are the names of
+ * modes, which the set handler has checked before this is called.
+ */
+int
+param_set_charp(const char *buf, zfs_kernel_param_t *kp)
+{
+	struct spl_param *sp = container_of(kp, struct spl_param, sp_kp);
+	size_t len = strcspn(buf, "\n");
+
+	if (len >= sizeof (sp->sp_str))
+		return (-EINVAL);
+	memcpy(sp->sp_str, buf, len);
+	sp->sp_str[len] = '\0';
+	*(const char **)kp->zkp_arg = sp->sp_str;
+	return (0);
+}
+
+int
 spl_param_get_u64(char *buf, zfs_kernel_param_t *kp)
 {
 
@@ -187,11 +240,19 @@ param_get_charp(char *buf, zfs_kernel_param_t *kp)
 	return (snprintf(buf, PAGE_SIZE, "%s\n", s != NULL ? s : ""));
 }
 
-/* The nodes are gone by now; their handlers' state goes with them. */
+/*
+ * kern_module.c takes the nodes down only after the modcmd has
+ * finished, so they are taken down here, before their handlers' state
+ * is freed; sysctl_teardown() empties the log, and kern_module.c finds
+ * nothing left to do.
+ */
 void
 spl_sysctl_fini(void)
 {
 	struct spl_param *sp;
+
+	if (spl_sysctl_clog != NULL)
+		sysctl_teardown(spl_sysctl_clog);
 
 	while ((sp = LIST_FIRST(&spl_params)) != NULL) {
 		LIST_REMOVE(sp, sp_link);

@@ -299,6 +299,7 @@
 #define	cmn_err	openzfs_cmn_err
 #define	ddi_strtol	openzfs_ddi_strtol
 #define	ddi_strtoll	openzfs_ddi_strtoll
+#define	ddi_strtoul	openzfs_ddi_strtoul
 #define	ddi_strtoull	openzfs_ddi_strtoull
 #define	kmem_asprintf	openzfs_kmem_asprintf
 #define	kmem_cache_alloc	openzfs_kmem_cache_alloc

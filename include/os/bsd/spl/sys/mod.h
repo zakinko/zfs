@@ -48,6 +48,9 @@ extern int param_get_uint(char *, zfs_kernel_param_t *);
 extern int param_set_uint(const char *, zfs_kernel_param_t *);
 extern int param_get_charp(char *, zfs_kernel_param_t *);
 extern int spl_param_get_u64(char *, zfs_kernel_param_t *);
+extern int param_set_int(const char *, zfs_kernel_param_t *);
+extern int spl_param_set_u64(const char *, zfs_kernel_param_t *);
+extern int param_set_charp(const char *, zfs_kernel_param_t *);
 
 extern const struct sysctlnode *spl_sysctl_scope(struct sysctllog **,
     const char *);

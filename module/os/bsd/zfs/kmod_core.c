@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: CDDL-1.0
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
+ */
+
+/*
+ * The module: its modcmd, and /dev/zfs.
+ *
+ * Each open of /dev/zfs is a file of its own, made with fd_clone(), so
+ * that the per-open state the common code keeps -- the zevent cursor,
+ * the on-exit actions -- lives as long as that descriptor and is torn
+ * down by its close, which a plain cdevsw close would not tell apart
+ * from the others.
+ */
+
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/conf.h>
+#include <sys/file.h>
+#include <sys/filedesc.h>
+#include <sys/module.h>
+#include <sys/zfs_context.h>
+#include <sys/zfs_ioctl.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/zfs_ioctl_impl.h>
+#include <sys/zfs_ioctl_compat.h>
+#include <sys/spa.h>
+#include <sys/zio.h>
+#include <sys/zvol.h>
+#include <zfs_gitrev.h>
+
+MODULE(MODULE_CLASS_DRIVER, zfs, "zlib");
+
+extern int zcommon_init(void);
+extern void zcommon_fini(void);
+extern int icp_init(void);
+extern void icp_fini(void);
+extern int zstd_init(void);
+extern void zstd_fini(void);
+extern void spl_taskq_init(void);
+extern void spl_taskq_fini(void);
+extern void spl_sysctl_fini(void);
+
+static int zfsdev_fop_ioctl(file_t *, u_long, void *);
+static int zfsdev_fop_close(file_t *);
+
+const struct fileops zfsdev_fileops = {
+	.fo_name = "zfs",
+	.fo_read = fbadop_read,
+	.fo_write = fbadop_write,
+	.fo_ioctl = zfsdev_fop_ioctl,
+	.fo_fcntl = fnullop_fcntl,
+	.fo_poll = fnullop_poll,
+	.fo_stat = fbadop_stat,
+	.fo_close = zfsdev_fop_close,
+	.fo_kqfilter = fnullop_kqfilter,
+	.fo_restart = fnullop_restart,
+};
+
+static dev_type_open(zfsdev_open);
+
+static const struct cdevsw zfs_cdevsw = {
+	.d_open = zfsdev_open,
+	.d_close = noclose,
+	.d_read = noread,
+	.d_write = nowrite,
+	.d_ioctl = noioctl,
+	.d_stop = nostop,
+	.d_tty = notty,
+	.d_poll = nopoll,
+	.d_mmap = nommap,
+	.d_kqfilter = nokqfilter,
+	.d_discard = nodiscard,
+	.d_flag = D_OTHER | D_MPSAFE,
+};
+
+/* zfsdev_state_init() hands the state here; it becomes the file's. */
+void
+zfsdev_private_set_state(void *priv, zfsdev_state_t *zs)
+{
+
+	*(zfsdev_state_t **)priv = zs;
+}
+
+zfsdev_state_t *
+zfsdev_private_get_state(void *priv)
+{
+
+	return (priv);
+}
+
+static int
+zfsdev_open(dev_t dev, int flag, int mode, struct lwp *l)
+{
+	zfsdev_state_t *zs = NULL;
+	file_t *fp;
+	int error, fd;
+
+	(void) dev, (void) mode, (void) l;
+	if ((error = fd_allocfile(&fp, &fd)) != 0)
+		return (error);
+	mutex_enter(&zfsdev_state_lock);
+	error = zfsdev_state_init(&zs);
+	mutex_exit(&zfsdev_state_lock);
+	if (error != 0) {
+		fd_abort(curproc, fp, fd);
+		return (error);
+	}
+	return (fd_clone(fp, fd, flag, &zfsdev_fileops, zs));
+}
+
+static int
+zfsdev_fop_close(file_t *fp)
+{
+
+	zfsdev_state_destroy(fp->f_data);
+	return (0);
+}
+
+/*
+ * sys_ioctl() has copied the zfs_iocparm_t in; the zfs_cmd_t it names
+ * is copied here, and back out whether or not the command failed, for
+ * a command reports some failures in it.
+ */
+static int
+zfsdev_fop_ioctl(file_t *fp, u_long cmd, void *data)
+{
+	zfs_iocparm_t *zp = data;
+	zfs_cmd_t *zc;
+	void *uaddr;
+	int error, rc;
+
+	(void) fp;
+	if (IOCGROUP(cmd) != 'Z' || IOCPARM_LEN(cmd) != sizeof (*zp))
+		return (SET_ERROR(ENOTTY));
+	if (zp->zfs_ioctl_version != ZFS_IOCVER_OZFS ||
+	    zp->zfs_cmd_size != sizeof (zfs_cmd_t))
+		return (SET_ERROR(ENOTSUP));
+
+	uaddr = (void *)(uintptr_t)zp->zfs_cmd;
+	zc = vmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
+	if (copyin(uaddr, zc, sizeof (zfs_cmd_t)) != 0) {
+		error = SET_ERROR(EFAULT);
+		goto out;
+	}
+	error = zfsdev_ioctl_common(ZFS_IOCREQ(cmd), zc, 0);
+	rc = copyout(zc, uaddr, sizeof (zfs_cmd_t));
+	if (error == 0 && rc != 0)
+		error = SET_ERROR(EFAULT);
+out:
+	vmem_free(zc, sizeof (zfs_cmd_t));
+	return (error);
+}
+
+int
+zfsdev_attach(void)
+{
+	devmajor_t bmajor = NODEVMAJOR, cmajor = NODEVMAJOR;
+
+	return (devsw_attach(ZFS_DRIVER, NULL, &bmajor, &zfs_cdevsw,
+	    &cmajor));
+}
+
+void
+zfsdev_detach(void)
+{
+
+	devsw_detach(NULL, &zfs_cdevsw);
+}
+
+static int
+zfs_modinit(void)
+{
+	int error;
+
+	spl_taskq_init();
+	if ((error = zcommon_init()) != 0)
+		goto zcommon_failed;
+	if ((error = icp_init()) != 0)
+		goto icp_failed;
+	if ((error = zstd_init()) != 0)
+		goto zstd_failed;
+	if ((error = zfs_kmod_init()) != 0)
+		goto kmod_failed;
+	printf("ZFS filesystem version: " ZPL_VERSION_STRING "\n");
+	printf("ZFS storage pool version: features support ("
+	    SPA_VERSION_STRING "), " ZFS_META_GITREV "\n");
+	return (0);
+
+kmod_failed:
+	zstd_fini();
+zstd_failed:
+	icp_fini();
+icp_failed:
+	zcommon_fini();
+zcommon_failed:
+	spl_taskq_fini();
+	return (error);
+}
+
+static int
+zfs_modfini(void)
+{
+
+	if (zfs_busy() || zvol_busy() || zio_injection_enabled)
+		return (SET_ERROR(EBUSY));
+	zfs_kmod_fini();
+	zstd_fini();
+	icp_fini();
+	zcommon_fini();
+	spl_taskq_fini();
+	spl_sysctl_fini();
+	return (0);
+}
+
+static int
+zfs_modcmd(modcmd_t cmd, void *arg)
+{
+
+	(void) arg;
+	switch (cmd) {
+	case MODULE_CMD_INIT:
+		return (zfs_modinit());
+	case MODULE_CMD_FINI:
+		return (zfs_modfini());
+	default:
+		return (ENOTTY);
+	}
+}

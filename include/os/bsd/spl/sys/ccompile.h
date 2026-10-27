@@ -101,7 +101,6 @@ typedef off_t loff_t;
 #define	asm		__asm
 #define	MUTEX_NOLOCKDEP	0
 #define	RW_NOLOCKDEP	0
-#define	param_set_charp(a, b)	(0)
 #define	ATTR_UID	AT_UID
 #define	ATTR_GID	AT_GID
 #define	ATTR_MODE	AT_MODE

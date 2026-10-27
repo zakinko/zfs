@@ -78,6 +78,19 @@ SRCS+=	list.c \
 	spl_uio.c \
 	spl_zlib.c
 
+#os/bsd/zfs
+SRCS+=	abd_os.c \
+	arc_os.c \
+	kmod_core.c \
+	spa_os.c \
+	sysctl_os.c \
+	vdev_disk.c \
+	vdev_label_os.c \
+	zfs_debug.c \
+	zfs_file_os.c \
+	zfs_ioctl_os.c \
+	zfs_racct.c
+
 #nvpair
 SRCS+=	fnvpair.c \
 	nvpair.c \

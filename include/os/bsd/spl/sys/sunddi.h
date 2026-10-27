@@ -42,6 +42,7 @@ typedef int ddi_devid_t;
 #define	ddi_root_node()					(void)0
 
 extern int ddi_strtol(const char *, char **, int, long *);
+extern int ddi_strtoul(const char *, char **, int, unsigned long *);
 /*
  * Callers pass an unsigned long long, which is illumos's u_longlong_t
  * and not NetBSD's: there u_longlong_t is uint64_t, an unsigned long

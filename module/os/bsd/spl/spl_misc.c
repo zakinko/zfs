@@ -118,6 +118,16 @@ ddi_strtol(const char *str, char **nptr, int base, long *result)
 }
 
 int
+ddi_strtoul(const char *str, char **nptr, int base, unsigned long *result)
+{
+	int rstatus;
+
+	*result = (unsigned long)strtou(str, nptr, base, 0, ULONG_MAX,
+	    &rstatus);
+	return (spl_strto_status(rstatus));
+}
+
+int
 ddi_strtoll(const char *str, char **nptr, int base, longlong_t *result)
 {
 	int rstatus;
