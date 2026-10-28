@@ -24,6 +24,8 @@
 #include <sys/param.h>
 #include <sys/buf.h>
 #include <sys/conf.h>
+#include <sys/device.h>
+#include <sys/kernel.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/module.h>
@@ -259,6 +261,8 @@ zfsdev_detach(void)
 	devsw_detach(&zfs_bdevsw, &zfs_cdevsw);
 }
 
+static bool zfs_initialized;
+
 static int
 zfs_modinit(void)
 {
@@ -280,6 +284,7 @@ zfs_modinit(void)
 	printf("ZFS filesystem version: " ZPL_VERSION_STRING "\n");
 	printf("ZFS storage pool version: features support ("
 	    SPA_VERSION_STRING "), " ZFS_META_GITREV "\n");
+	zfs_initialized = true;
 	return (0);
 
 kmod_failed:
@@ -293,10 +298,43 @@ zcommon_failed:
 	return (error);
 }
 
+/*
+ * A module the boot loader loaded is initialised during configure(),
+ * before initclocks(), while the timecounter is still the dummy one,
+ * which moves a microsecond each time it is read.  The checksum and
+ * vector benchmarks run each implementation until a millisecond has
+ * passed, so at that point they did not finish: a boot with zfs.kmod
+ * in boot.cfg stopped in zfs_sha512_transform_avx2.  The work is put
+ * off to config_finalize(), which runs once the clocks do.
+ *
+ * config_finalize() calls every hook again while any of them returns
+ * nonzero, so this one has to do its work only the first time.  A
+ * second zfs_modinit() ran spa_init() again before failing with EEXIST
+ * at the device switch, and the first zpool then faulted in
+ * mutex_vector_enter() on the reinitialised spa_namespace_lock.
+ */
+static int
+zfs_modinit_finalize(device_t self)
+{
+	static bool done;
+	int error;
+
+	(void) self;
+	if (done)
+		return (0);
+	done = true;
+	if ((error = zfs_modinit()) != 0)
+		printf("zfs: initialisation failed, error %d\n", error);
+	return (0);
+}
+
 static int
 zfs_modfini(void)
 {
 
+	/* Nothing to undo if the deferred initialisation failed. */
+	if (!zfs_initialized)
+		return (0);
 	if (zfs_busy() || zvol_busy() || zio_injection_enabled)
 		return (SET_ERROR(EBUSY));
 	if (vfs_detach(&zfs_vfsops) != 0)
@@ -307,6 +345,7 @@ zfs_modfini(void)
 	zcommon_fini();
 	spl_taskq_fini();
 	spl_sysctl_fini();
+	zfs_initialized = false;
 	return (0);
 }
 
@@ -317,6 +356,9 @@ zfs_modcmd(modcmd_t cmd, void *arg)
 	(void) arg;
 	switch (cmd) {
 	case MODULE_CMD_INIT:
+		if (cold)
+			return (config_finalize_register(NULL,
+			    zfs_modinit_finalize));
 		return (zfs_modinit());
 	case MODULE_CMD_FINI:
 		return (zfs_modfini());
