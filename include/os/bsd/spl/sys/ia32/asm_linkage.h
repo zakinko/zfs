@@ -135,6 +135,14 @@ x:
 x:
 
 /*
+ * A function local to its file, which the GCM code that FreeBSD does not
+ * build defines; as Linux's.
+ */
+#define	FUNCTION(x) \
+	.type	x, @function; \
+x:
+
+/*
  * ENTRY2 is identical to ENTRY but provides two labels for the entry point.
  */
 #define	ENTRY2(x, y) \

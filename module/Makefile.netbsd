@@ -331,16 +331,47 @@ SRCS+=	abd.c \
 	zthr.c \
 	zvol.c
 
-# The x86_64 implementations that use no vector unit, which the impl
-# tables name whatever the toolchain, as Linux builds them.
+# The x86_64 implementations, those of the vector units among them, as
+# Linux builds them: the AES and GCM ones too, for the ICP does the
+# encryption here, not the kernel's own as on FreeBSD.  Which run is
+# chosen at load from what the CPU has (sys/simd.h).
 .if ${MACHINE_ARCH} == "x86_64"
+CPPFLAGS+= -DHAVE_TOOLCHAIN_SSE2 -DHAVE_TOOLCHAIN_SSSE3 \
+	-DHAVE_TOOLCHAIN_SSE4_1 -DHAVE_TOOLCHAIN_AVX -DHAVE_TOOLCHAIN_AVX2 \
+	-DHAVE_TOOLCHAIN_AVX512 -DHAVE_TOOLCHAIN_AVX512F \
+	-DHAVE_TOOLCHAIN_AVX512VL -DHAVE_TOOLCHAIN_AVX512BW \
+	-DHAVE_TOOLCHAIN_SHA512EXT -DHAVE_TOOLCHAIN_AES \
+	-DHAVE_TOOLCHAIN_PCLMULQDQ -DHAVE_TOOLCHAIN_MOVBE \
+	-DHAVE_TOOLCHAIN_VAES -DHAVE_TOOLCHAIN_VPCLMULQDQ
 .PATH:	${SRCDIR}/icp/asm-x86_64/aes \
+	${SRCDIR}/icp/asm-x86_64/blake3 \
 	${SRCDIR}/icp/asm-x86_64/sha2
-SRCS+=	aes_impl_x86-64.c \
+SRCS+=	aes_impl_aesni.c \
+	aes_impl_x86-64.c \
+	aes_aesni.S \
 	aes_amd64.S \
 	aeskey.c \
+	blake3_avx2.S \
+	blake3_avx512.S \
+	blake3_sse2.S \
+	blake3_sse41.S \
+	gcm_pclmulqdq.c \
 	sha256-x86_64.S \
-	sha512-x86_64.S
+	sha512-x86_64.S \
+	zfs_fletcher_avx512.c \
+	zfs_fletcher_intel.c \
+	zfs_fletcher_sse.c
+
+# The GCM assembler, by rules of its own: gcm_pclmulqdq.S has the name
+# of algs/modes/gcm_pclmulqdq.c, which Linux keeps apart by directory,
+# and with both directories in .PATH make builds the one object from
+# either.
+GCM_ASM=	aesni-gcm-avx2-vaes aesni-gcm-x86_64 gcm_pclmulqdq ghash-x86_64
+.for f in ${GCM_ASM}
+OBJS+=	${f}_asm.o
+${f}_asm.o: ${SRCDIR}/icp/asm-x86_64/modes/${f}.S
+	${COMPILE.S} ${SRCDIR}/icp/asm-x86_64/modes/${f}.S -o ${.TARGET}
+.endfor
 .endif
 
 # Common code FreeBSD takes from its own kernel instead.
