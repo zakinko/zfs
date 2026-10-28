@@ -16,20 +16,22 @@
 
 /*
  * Count the I/O against the thread that asked for it, where getrusage(2)
- * finds it, as NetBSD's own file systems do through the buffer cache.
+ * finds it, as NetBSD's own file systems do through the buffer cache,
+ * and in the pool's iostats kstat, which is where the split between
+ * ARC and Direct I/O is kept.
  */
 void
 zfs_racct_read(spa_t *spa, uint64_t size, uint64_t iops, dmu_flags_t flags)
 {
 
-	(void) spa, (void) size, (void) flags;
 	curlwp->l_ru.ru_inblock += iops;
+	spa_iostats_read_add(spa, size, iops, flags);
 }
 
 void
 zfs_racct_write(spa_t *spa, uint64_t size, uint64_t iops, dmu_flags_t flags)
 {
 
-	(void) spa, (void) size, (void) flags;
 	curlwp->l_ru.ru_oublock += iops;
+	spa_iostats_write_add(spa, size, iops, flags);
 }
