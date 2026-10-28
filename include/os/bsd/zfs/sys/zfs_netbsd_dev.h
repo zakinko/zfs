@@ -33,4 +33,7 @@ void zvol_netbsd_strategy(struct buf *);
 int zvol_netbsd_discard(dev_t, off_t, off_t);
 int zvol_netbsd_psize(dev_t);
 
+void vdev_disk_init(void);
+void vdev_disk_fini(void);
+
 #endif /* _SYS_ZFS_NETBSD_DEV_H */

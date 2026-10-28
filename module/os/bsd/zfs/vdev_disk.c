@@ -23,7 +23,11 @@
  *
  * A cache flush and a TRIM are an ioctl and a discard, which wait for
  * the device, so they are handed to a taskq rather than done in the
- * zio pipeline's own thread.
+ * zio pipeline's own thread.  The taskq is this file's own, as
+ * vdev_file.c has z_vdev_file: on system_taskq a flush waited behind
+ * zvol_prefetch_minors_impl() tasks blocked on spa_namespace_lock,
+ * whose holder, spa_async_thread in spa_config_update(), was waiting
+ * for the txg that the flush belonged to.
  */
 
 #include <sys/zfs_context.h>
@@ -42,6 +46,24 @@
 #include <sys/namei.h>
 #include <sys/vnode.h>
 #include <miscfs/specfs/specdev.h>
+
+static taskq_t *vdev_disk_taskq;
+
+void
+vdev_disk_init(void)
+{
+
+	vdev_disk_taskq = taskq_create("z_vdev_disk", MAX(boot_ncpus, 16),
+	    minclsyspri, boot_ncpus, INT_MAX, TASKQ_DYNAMIC);
+	VERIFY(vdev_disk_taskq);
+}
+
+void
+vdev_disk_fini(void)
+{
+
+	taskq_destroy(vdev_disk_taskq);
+}
 
 typedef struct vdev_disk {
 	struct vnode	*vd_vp;
@@ -244,7 +266,7 @@ vdev_disk_io_start(zio_t *zio)
 			zio_execute(zio);
 			return;
 		}
-		(void) taskq_dispatch(system_taskq, vdev_disk_io_sync, zio,
+		(void) taskq_dispatch(vdev_disk_taskq, vdev_disk_io_sync, zio,
 		    TQ_SLEEP);
 		return;
 
@@ -254,7 +276,7 @@ vdev_disk_io_start(zio_t *zio)
 			zio_execute(zio);
 			return;
 		}
-		(void) taskq_dispatch(system_taskq, vdev_disk_io_sync, zio,
+		(void) taskq_dispatch(vdev_disk_taskq, vdev_disk_io_sync, zio,
 		    TQ_SLEEP);
 		return;
 

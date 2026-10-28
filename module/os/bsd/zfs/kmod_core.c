@@ -275,6 +275,7 @@ zfs_modinit(void)
 		goto icp_failed;
 	if ((error = zstd_init()) != 0)
 		goto zstd_failed;
+	vdev_disk_init();
 	if ((error = zfs_kmod_init()) != 0)
 		goto kmod_failed;
 	if ((error = vfs_attach(&zfs_vfsops)) != 0) {
@@ -288,6 +289,7 @@ zfs_modinit(void)
 	return (0);
 
 kmod_failed:
+	vdev_disk_fini();
 	zstd_fini();
 zstd_failed:
 	icp_fini();
@@ -340,6 +342,7 @@ zfs_modfini(void)
 	if (vfs_detach(&zfs_vfsops) != 0)
 		return (SET_ERROR(EBUSY));
 	zfs_kmod_fini();
+	vdev_disk_fini();
 	zstd_fini();
 	icp_fini();
 	zcommon_fini();
