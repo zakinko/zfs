@@ -97,6 +97,25 @@ include $(srcdir)/%D%/zed/Makefile.am
 endif
 
 
+# NetBSD's mount(8) runs mount_zfs for mount -t zfs and fstab.  It is
+# built under another name, since automake would take mount_zfs for the
+# Linux mount.zfs, and installed as mount_zfs.
+if BUILD_NETBSD
+sbin_PROGRAMS   += mount_zfs_netbsd
+CPPCHECKTARGETS += mount_zfs_netbsd
+
+mount_zfs_netbsd_SOURCES = \
+	%D%/mount_zfs_netbsd.c
+
+mount_zfs_netbsd_LDADD = -lutil
+
+INSTALL_EXEC_HOOKS += mount_zfs-install-exec-hook
+mount_zfs-install-exec-hook:
+	mv -f "$(DESTDIR)$(sbindir)/mount_zfs_netbsd$(EXEEXT)" \
+	    "$(DESTDIR)$(sbindir)/mount_zfs$(EXEEXT)"
+endif
+
+
 if USING_PYTHON
 bin_SCRIPTS      += zarcsummary     zarcstat        dbufstat        zilstat
 CLEANFILES       += zarcsummary     zarcstat        dbufstat        zilstat
