@@ -108,6 +108,14 @@ struct kstat_s {
 	size_t		ks_raw_bufsize;
 	struct sysctllog *ks_sysctllog;
 	void		*ks_fields;	/* a named kstat's nodes */
+	size_t		ks_fields_size;
+	/*
+	 * What kstat_create() allocated, freed by __kstat_delete(): the
+	 * owner may point ks_data elsewhere and change ks_ndata and
+	 * ks_data_size, as spa_stats.c's histograms do on each update.
+	 */
+	void		*ks_data_alloc;
+	size_t		ks_data_alloc_size;
 };
 
 typedef struct kstat_named_s {

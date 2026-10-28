@@ -181,8 +181,11 @@ __kstat_create(const char *module, int instance, const char *name,
 		panic("kstat %s: type %d", name, type);
 	}
 
-	if (!(flags & KSTAT_FLAG_VIRTUAL) && ksp->ks_data_size != 0)
+	if (!(flags & KSTAT_FLAG_VIRTUAL) && ksp->ks_data_size != 0) {
 		ksp->ks_data = kmem_zalloc(ksp->ks_data_size, KM_SLEEP);
+		ksp->ks_data_alloc = ksp->ks_data;
+		ksp->ks_data_alloc_size = ksp->ks_data_size;
+	}
 	return (ksp);
 }
 
@@ -425,8 +428,8 @@ __kstat_install(kstat_t *ksp)
 	    CTLTYPE_NODE, name, NULL, NULL, 0, NULL, 0, CTL_CREATE,
 	    CTL_EOL) != 0)
 		return;
-	ksp->ks_fields = kmem_zalloc(sizeof (struct kstat_field) *
-	    ksp->ks_ndata, KM_SLEEP);
+	ksp->ks_fields_size = sizeof (struct kstat_field) * ksp->ks_ndata;
+	ksp->ks_fields = kmem_zalloc(ksp->ks_fields_size, KM_SLEEP);
 	for (i = 0; i < ksp->ks_ndata; i++) {
 		struct kstat_field *kf =
 		    &((struct kstat_field *)ksp->ks_fields)[i];
@@ -462,11 +465,14 @@ __kstat_delete(kstat_t *ksp)
 {
 
 	sysctl_teardown(&ksp->ks_sysctllog);
-	if (ksp->ks_fields != NULL && ksp->ks_type == KSTAT_TYPE_NAMED)
-		kmem_free(ksp->ks_fields,
-		    sizeof (struct kstat_field) * ksp->ks_ndata);
-	if (!(ksp->ks_flags & KSTAT_FLAG_VIRTUAL) && ksp->ks_data != NULL)
-		kmem_free(ksp->ks_data, ksp->ks_data_size);
+	/*
+	 * By what was allocated, not by ks_ndata and ks_data_size, which
+	 * the owner may have changed since; kmem_free() trusts the size.
+	 */
+	if (ksp->ks_fields != NULL)
+		kmem_free(ksp->ks_fields, ksp->ks_fields_size);
+	if (ksp->ks_data_alloc != NULL)
+		kmem_free(ksp->ks_data_alloc, ksp->ks_data_alloc_size);
 	mutex_destroy(&ksp->ks_private_lock);
 	kmem_free(ksp, sizeof (*ksp));
 }

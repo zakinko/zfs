@@ -16,9 +16,16 @@
 /*
  * NetBSD's kmem(9) is illumos's, by descent: kmem_alloc(),
  * kmem_zalloc() and kmem_free() take the same arguments, and KM_SLEEP
- * and KM_NOSLEEP mean the same.  It differs in refusing a size of 0,
- * which illumos answers with NULL and the common code relies on, so the
- * three are wrapped to take it.
+ * and KM_NOSLEEP mean the same.  It differs in refusing a size of 0, so
+ * the three are wrapped to take it.
+ *
+ * A size of 0 gets a pointer that is not NULL and is not to be read, as
+ * Linux's ZERO_SIZE_PTR, and freeing it does nothing: FreeBSD's
+ * allocates 16 bytes for it, and neither answers NULL, which the common
+ * code takes for a failed KM_NOSLEEP allocation.  The ICP's CCM does,
+ * for the plaintext of a block with nothing encrypted in it, a dnode
+ * block whose bonus buffers are all plain; NULL there failed it with
+ * CRYPTO_HOST_MEMORY, and no CCM dataset could be mounted.
  *
  * kmem_cache_t is illumos's object cache, which NetBSD has as
  * pool_cache(9); see spl_kmem.c.
@@ -36,12 +43,14 @@
 #define	POINTER_IS_VALID(p)	(!((uintptr_t)(p) & 0x3))
 #define	POINTER_INVALIDATE(pp)	(*(pp) = (void *)((uintptr_t)(*(pp)) | 0x1))
 
+#define	SPL_ZERO_SIZE_PTR	((void *)16)
+
 static __inline void *
 spl_kmem_alloc(size_t size, int flags)
 {
 
 	if (size == 0)
-		return (NULL);
+		return (SPL_ZERO_SIZE_PTR);
 	return ((kmem_alloc)(size, (km_flag_t)flags));
 }
 
@@ -50,7 +59,7 @@ spl_kmem_zalloc(size_t size, int flags)
 {
 
 	if (size == 0)
-		return (NULL);
+		return (SPL_ZERO_SIZE_PTR);
 	return ((kmem_zalloc)(size, (km_flag_t)flags));
 }
 
@@ -58,8 +67,10 @@ static __inline void
 spl_kmem_free(void *buf, size_t size)
 {
 
-	if (buf == NULL || size == 0)
+	if (buf == NULL || size == 0) {
+		ASSERT(buf == NULL || buf == SPL_ZERO_SIZE_PTR);
 		return;
+	}
 	(kmem_free)(buf, size);
 }
 
