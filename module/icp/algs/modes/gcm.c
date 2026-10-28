@@ -1622,6 +1622,12 @@ gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 	if (ctx->gcm_Htable == NULL) {
 		return (CRYPTO_HOST_MEMORY);
 	}
+	/*
+	 * gcm_clear_ctx() wipes and frees the table by this length.  Left
+	 * 0, the table was never wiped, and a kmem_free() that goes by the
+	 * size given, as illumos's and NetBSD's do, never freed it.
+	 */
+	ctx->gcm_htab_len = htab_len;
 
 	/* Init H (encrypt zero block) and create the initial counter block. */
 	memset(H, 0, sizeof (ctx->gcm_H));
@@ -1695,7 +1701,11 @@ gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 	return (CRYPTO_SUCCESS);
 }
 
-#if defined(_KERNEL)
+/*
+ * Linux's module_param_call(), as icp_gcm_impl's above: FreeBSD builds
+ * none of the GCM assembler, so nothing but Linux reached this.
+ */
+#if defined(_KERNEL) && defined(__linux__)
 static int
 icp_gcm_avx_set_chunk_size(const char *buf, zfs_kernel_param_t *kp)
 {
