@@ -440,23 +440,13 @@ abd_get_offset_scatter(abd_t *abd, abd_t *sabd, size_t off,
 }
 
 /*
- * Allocate a scatter ABD structure from user pages.  The chunks are the
- * pages' addresses in the direct map, so that the rest of this file sees
- * them as any other chunk; abd_free_chunks() leaves them alone.
+ * Allocate a scatter ABD structure from user pages, given as the kernel
+ * addresses zfs_uio_get_dio_pages_alloc() mapped them at.  The chunks
+ * are those addresses, so that the rest of this file sees them as any
+ * other chunk; abd_free_chunks() leaves them alone.
  */
-static void *
-abd_page_va(struct vm_page *pg)
-{
-#ifdef PMAP_MAP_POOLPAGE
-	return ((void *)PMAP_MAP_POOLPAGE(VM_PAGE_TO_PHYS(pg)));
-#else
-	(void) pg;
-	panic("abd_alloc_from_pages: no direct map");
-#endif
-}
-
 abd_t *
-abd_alloc_from_pages(struct vm_page **pages, unsigned long offset,
+abd_alloc_from_pages(void **pages, unsigned long offset,
     uint64_t size)
 {
 	VERIFY3U(size, <=, DMU_MAX_ACCESS);
@@ -469,13 +459,12 @@ abd_alloc_from_pages(struct vm_page **pages, unsigned long offset,
 
 	if ((offset + size) <= PAGE_SIZE) {
 		abd->abd_flags |= ABD_FLAG_LINEAR | ABD_FLAG_LINEAR_PAGE;
-		ABD_LINEAR_BUF(abd) = (char *)abd_page_va(pages[0]) + offset;
+		ABD_LINEAR_BUF(abd) = (char *)pages[0] + offset;
 	} else {
 		ABD_SCATTER(abd).abd_offset = offset;
 		ASSERT0(ABD_SCATTER(abd).abd_offset);
 		for (int i = 0; i < abd_chunkcnt_for_bytes(size); i++)
-			ABD_SCATTER(abd).abd_chunks[i] =
-			    abd_page_va(pages[i]);
+			ABD_SCATTER(abd).abd_chunks[i] = pages[i];
 	}
 
 	return (abd);

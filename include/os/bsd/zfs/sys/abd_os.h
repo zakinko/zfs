@@ -20,7 +20,6 @@
 #include <sys/types.h>
 
 struct abd;
-struct vm_page;
 
 struct abd_scatter {
 	uint_t		abd_offset;
@@ -33,7 +32,7 @@ struct abd_linear {
 
 #ifdef _KERNEL
 __attribute__((malloc))
-struct abd *abd_alloc_from_pages(struct vm_page **, unsigned long, uint64_t);
+struct abd *abd_alloc_from_pages(void **, unsigned long, uint64_t);
 #endif
 
 #endif	/* _ABD_OS_H */

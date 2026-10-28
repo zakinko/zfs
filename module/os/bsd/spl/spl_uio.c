@@ -125,23 +125,122 @@ zfs_uio_page_aligned(zfs_uio_t *uio)
 }
 
 /*
- * Direct I/O wires the user's pages for the I/O to go straight to and
- * from them.  That is not done here yet, so a read or write that would
- * be direct -- O_DIRECT, or direct=always, with aligned buffers -- fails
- * with EOPNOTSUPP: zfs_setup_direct() returns the error as it is.
+ * Direct I/O wires the user's pages, as physio does with uvm_vslock(),
+ * and maps them into kernel space, as vmapbuf() does, for the DMU to
+ * reach them through abd_alloc_from_pages().  The direct map is not
+ * used: a module is built without _KERNEL_OPT, so __HAVE_DIRECT_MAP is
+ * not defined in it, and a KASAN or Xen PV kernel has none.  The
+ * iovecs are copied, since the I/O advances the uio's own, and the
+ * copy is what is unmapped and unwired.
+ *
+ * FreeBSD also write-protects the pages of a write until it is done,
+ * so that the process cannot change a block between its checksum and
+ * the disk.  UVM has no such hold on an anonymous page: a write fault
+ * on a wired page goes through.  That is Linux's position too, and
+ * vdev.c's zfs_vdev_direct_write_verify defaults on for everything but
+ * FreeBSD for it, rechecking the checksum of each Direct I/O write.
  */
 int
 zfs_uio_get_dio_pages_alloc(zfs_uio_t *uio, zfs_uio_rw_t rw)
 {
+	struct uio *u = GET_UIO_STRUCT(uio);
+	zfs_uio_dio_t *dio = &uio->uio_dio;
+	struct vmspace *vs = u->uio_vmspace;
+	bool user = !VMSPACE_IS_KERNEL_P(vs);
+	vm_prot_t prot;
+	int npages, i, error;
 
-	(void) uio, (void) rw;
-	return (SET_ERROR(EOPNOTSUPP));
+	ASSERT3U(zfs_uio_rw(uio), ==, rw);
+	ASSERT(zfs_uio_page_aligned(uio));
+
+	/* Reading the file writes the pages, and the other way round. */
+	prot = (rw == UIO_READ) ? (VM_PROT_READ | VM_PROT_WRITE) :
+	    VM_PROT_READ;
+	npages = 0;
+	for (i = 0; i < u->uio_iovcnt; i++)
+		npages += u->uio_iov[i].iov_len >> PAGE_SHIFT;
+	if (npages == 0)
+		return (SET_ERROR(EINVAL));
+
+	dio->pages = kmem_alloc(npages * sizeof (void *), KM_SLEEP);
+	dio->iovalloc = u->uio_iovcnt;
+	dio->iov = kmem_alloc(dio->iovalloc * sizeof (struct iovec), KM_SLEEP);
+	dio->kva = kmem_zalloc(dio->iovalloc * sizeof (vaddr_t), KM_SLEEP);
+	dio->vs = vs;
+	dio->npages = 0;
+	dio->iovcnt = 0;
+
+	for (i = 0; i < u->uio_iovcnt; i++) {
+		struct iovec *iov = &u->uio_iov[i];
+		vaddr_t va = (vaddr_t)iov->iov_base;
+		vaddr_t kva, off;
+		paddr_t pa;
+
+		if (iov->iov_len == 0)
+			continue;
+		if (!user) {
+			/* Kernel memory is wired and mapped already. */
+			for (off = 0; off < iov->iov_len; off += PAGE_SIZE)
+				dio->pages[dio->npages++] = (void *)(va + off);
+			continue;
+		}
+		error = uvm_vslock(vs, iov->iov_base, iov->iov_len, prot);
+		if (error != 0)
+			goto fail;
+		kva = uvm_km_alloc(kernel_map, iov->iov_len, 0,
+		    UVM_KMF_VAONLY | UVM_KMF_WAITVA);
+		for (off = 0; off < iov->iov_len; off += PAGE_SIZE) {
+			if (!pmap_extract(vm_map_pmap(&vs->vm_map), va + off,
+			    &pa)) {
+				/* Wired, so not expected; undo this iovec. */
+				pmap_kremove(kva, off);
+				pmap_update(pmap_kernel());
+				uvm_km_free(kernel_map, kva, iov->iov_len,
+				    UVM_KMF_VAONLY);
+				uvm_vsunlock(vs, iov->iov_base, iov->iov_len);
+				error = EFAULT;
+				goto fail;
+			}
+			pmap_kenter_pa(kva + off, pa, prot, 0);
+			dio->pages[dio->npages++] = (void *)(kva + off);
+		}
+		dio->iov[dio->iovcnt] = *iov;
+		dio->kva[dio->iovcnt++] = kva;
+	}
+	pmap_update(pmap_kernel());
+	ASSERT3S(dio->npages, ==, npages);
+	uio->uio_extflg |= UIO_DIRECT;
+	return (0);
+
+fail:
+	dio->npages = npages;
+	zfs_uio_free_dio_pages(uio, rw);
+	return (SET_ERROR(error));
 }
 
 void
 zfs_uio_free_dio_pages(zfs_uio_t *uio, zfs_uio_rw_t rw)
 {
+	zfs_uio_dio_t *dio = &uio->uio_dio;
+	int i;
 
-	(void) uio, (void) rw;
-	panic("zfs_uio_free_dio_pages: no Direct I/O pages were taken");
+	(void) rw;
+	ASSERT3P(dio->pages, !=, NULL);
+	for (i = 0; i < dio->iovcnt; i++) {
+		vsize_t len = dio->iov[i].iov_len;
+
+		pmap_kremove(dio->kva[i], len);
+		pmap_update(pmap_kernel());
+		uvm_km_free(kernel_map, dio->kva[i], len, UVM_KMF_VAONLY);
+		uvm_vsunlock(dio->vs, dio->iov[i].iov_base, len);
+	}
+	kmem_free(dio->kva, dio->iovalloc * sizeof (vaddr_t));
+	kmem_free(dio->iov, dio->iovalloc * sizeof (struct iovec));
+	kmem_free(dio->pages, dio->npages * sizeof (void *));
+	dio->pages = NULL;
+	dio->iov = NULL;
+	dio->kva = NULL;
+	dio->npages = 0;
+	dio->iovcnt = 0;
+	dio->iovalloc = 0;
 }

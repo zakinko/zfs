@@ -34,9 +34,19 @@ typedef struct iovec	iovec_t;
 typedef enum uio_seg	zfs_uio_seg_t;
 typedef enum uio_rw	zfs_uio_rw_t;
 
+/*
+ * pages[] holds each wired page's kernel address rather than its
+ * vm_page: the common code only hands the array to
+ * abd_alloc_from_pages(), and a module cannot count on a direct map.
+ */
 typedef struct {
-	struct vm_page	**pages;
+	void		**pages;
 	int		npages;
+	struct vmspace	*vs;		/* where the pages were wired */
+	struct iovec	*iov;		/* what was wired, to unwire it */
+	vaddr_t		*kva;		/* where iov[i] is mapped, or 0 */
+	int		iovcnt;
+	int		iovalloc;	/* the length of iov[] and kva[] */
 } zfs_uio_dio_t;
 
 typedef struct zfs_uio {
