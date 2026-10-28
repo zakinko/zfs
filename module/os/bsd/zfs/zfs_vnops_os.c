@@ -57,6 +57,7 @@
 #include <sys/endian.h>
 #include <sys/vnode.h>
 #include <sys/dirent.h>
+#include <sys/extattr.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/kmem.h>
@@ -3853,6 +3854,763 @@ ioflags(int ioflags)
 	return (flags);
 }
 
+
+/*
+ * Extended attributes: NetBSD's extattr(2), over ZFS's own, which are
+ * kept in the znode's system attributes (xattr=sa) or as files of a
+ * hidden directory (xattr=dir).  This is FreeBSD's, whose extattr
+ * interface NetBSD shares -- namespaces, names, the length-prefixed
+ * list -- with the names ZFS stores encoded as FreeBSD encodes them:
+ *
+ *	NAMESPACE	XATTR_COMPAT	PREFIX
+ *	system		*		freebsd:system:
+ *	user		1		(none, as attributes made on Solaris)
+ *	user		0		user.
+ *
+ * NetBSD's own ZFS had no extended attributes, so there are none on its
+ * pools to stay compatible with; FreeBSD's encoding lets a pool move
+ * between the two.  Its setxattr(2) and listxattr(2) are this same
+ * interface: a "user.x" set by setxattr(2) is an attribute "user.x" of
+ * the user namespace, as on FFS.
+ *
+ * The directory of an attribute is worked on through the znodes, not by
+ * namei() relative to it as FreeBSD does, which NetBSD has no
+ * kernel-side form of.  Who may read and write is decided as for the
+ * attributes in the system attributes, by extattr_check_cred() against
+ * the file, not by the mode of the attribute's own file.
+ */
+
+int zfs_xattr_compat = 1;
+
+static int
+zfs_check_attrname(const char *name)
+{
+
+	/* We don't allow '/' character in attribute name. */
+	if (strchr(name, '/') != NULL)
+		return (SET_ERROR(EINVAL));
+	/* We don't allow attribute names that start with a namespace prefix. */
+	if (ZFS_XA_NS_PREFIX_FORBIDDEN(name))
+		return (SET_ERROR(EINVAL));
+	return (0);
+}
+
+static int
+zfs_create_attrname(int attrnamespace, const char *name, char *attrname,
+    size_t size, boolean_t compat)
+{
+	const char *namespace, *prefix, *suffix;
+
+	memset(attrname, 0, size);
+
+	switch (attrnamespace) {
+	case EXTATTR_NAMESPACE_USER:
+		if (compat) {
+			/*
+			 * This is the default namespace by which we can access
+			 * all attributes created on Solaris.
+			 */
+			prefix = namespace = suffix = "";
+		} else {
+			/*
+			 * This is compatible with the user namespace encoding
+			 * on Linux prior to xattr_compat, but nothing
+			 * else.
+			 */
+			prefix = "";
+			namespace = "user";
+			suffix = ".";
+		}
+		break;
+	case EXTATTR_NAMESPACE_SYSTEM:
+		prefix = "freebsd:";
+		namespace = EXTATTR_NAMESPACE_SYSTEM_STRING;
+		suffix = ":";
+		break;
+	case EXTATTR_NAMESPACE_EMPTY:
+	default:
+		return (SET_ERROR(EINVAL));
+	}
+	if (snprintf(attrname, size, "%s%s%s%s", prefix, namespace, suffix,
+	    name) >= size) {
+		return (SET_ERROR(ENAMETOOLONG));
+	}
+	return (0);
+}
+
+static int
+zfs_ensure_xattr_cached(znode_t *zp)
+{
+	int error = 0;
+
+	ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
+
+	if (zp->z_xattr_cached != NULL)
+		return (0);
+
+	if (rw_write_held(&zp->z_xattr_lock))
+		return (zfs_sa_get_xattr(zp));
+
+	if (!rw_tryupgrade(&zp->z_xattr_lock)) {
+		rw_exit(&zp->z_xattr_lock);
+		rw_enter(&zp->z_xattr_lock, RW_WRITER);
+	}
+	if (zp->z_xattr_cached == NULL)
+		error = zfs_sa_get_xattr(zp);
+	rw_downgrade(&zp->z_xattr_lock);
+	return (error);
+}
+
+/*
+ * "." and ".." name the directory of the attributes and the file they
+ * are of, not attributes, though zfs_dirlook() finds them: ".." is a
+ * regular file, the one already locked by the VOP.
+ */
+static boolean_t
+zfs_xattr_dotname(const char *attrname)
+{
+
+	return (attrname[0] == '\0' || strcmp(attrname, ".") == 0 ||
+	    strcmp(attrname, "..") == 0);
+}
+
+/*
+ * The file of an attribute in the directory of a file's attributes,
+ * which the caller has locked, as a lookup has it: referenced and
+ * unlocked.  Anything that is not a file is not an attribute.
+ */
+static int
+zfs_xattr_file(vnode_t *xvp, const char *attrname, vnode_t **vpp)
+{
+	znode_t *xdzp = VTOZ(xvp), *zp;
+	zfsvfs_t *zfsvfs = xdzp->z_zfsvfs;
+	int error;
+
+	if (zfs_xattr_dotname(attrname))
+		return (SET_ERROR(ENOENT));
+	if ((error = zfs_enter_verify_zp(zfsvfs, xdzp, FTAG)) != 0)
+		return (error);
+	error = zfs_dirlook(xdzp, attrname, &zp);
+	zfs_exit(zfsvfs, FTAG);
+	if (error != 0)
+		return (error);
+	if (ZTOV(zp)->v_type != VREG) {
+		vrele(ZTOV(zp));
+		return (SET_ERROR(ENOENT));
+	}
+	*vpp = ZTOV(zp);
+	return (0);
+}
+
+static int
+zfs_getextattr_dir(struct vop_getextattr_args *ap, const char *attrname)
+{
+	struct vattr va;
+	vnode_t *xvp = NULL, *vp;
+	int error;
+
+	error = zfs_lookup(ap->a_vp, NULL, &xvp, NULL, 0, ap->a_cred,
+	    LOOKUP_XATTR);
+	if (error != 0)
+		return (error);
+	vn_lock(xvp, LK_SHARED | LK_RETRY);
+	error = zfs_xattr_file(xvp, attrname, &vp);
+	vput(xvp);
+	if (error != 0)
+		return (error);
+
+	vn_lock(vp, LK_SHARED | LK_RETRY);
+	if (ap->a_size != NULL) {
+		error = VOP_GETATTR(vp, &va, ap->a_cred);
+		if (error == 0)
+			*ap->a_size = (size_t)va.va_size;
+	} else if (ap->a_uio != NULL)
+		error = VOP_READ(vp, ap->a_uio, IO_UNIT, ap->a_cred);
+	vput(vp);
+	return (error);
+}
+
+static int
+zfs_getextattr_sa(struct vop_getextattr_args *ap, const char *attrname)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	uchar_t *nv_value;
+	uint_t nv_size;
+	int error;
+
+	error = zfs_ensure_xattr_cached(zp);
+	if (error != 0)
+		return (error);
+
+	ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
+	ASSERT3P(zp->z_xattr_cached, !=, NULL);
+
+	error = nvlist_lookup_byte_array(zp->z_xattr_cached, attrname,
+	    &nv_value, &nv_size);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	if (ap->a_size != NULL)
+		*ap->a_size = nv_size;
+	else if (ap->a_uio != NULL)
+		error = uiomove(nv_value, nv_size, ap->a_uio);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	return (0);
+}
+
+static int
+zfs_getextattr_impl(struct vop_getextattr_args *ap, boolean_t compat)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	char attrname[EXTATTR_MAXNAMELEN+1];
+	int error;
+
+	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
+	    sizeof (attrname), compat);
+	if (error != 0)
+		return (error);
+
+	error = ENOENT;
+	if (zfsvfs->z_use_sa && zp->z_is_sa)
+		error = zfs_getextattr_sa(ap, attrname);
+	if (error == ENOENT && !zp->z_xattr_dir_absent)
+		error = zfs_getextattr_dir(ap, attrname);
+	return (error);
+}
+
+/*
+ * Vnode operation to retrieve a named extended attribute.
+ */
+static int
+zfs_netbsd_getextattr(void *v)
+{
+	struct vop_getextattr_args *ap = v;
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	int error;
+
+	/*
+	 * If the xattr property is off, refuse the request.
+	 */
+	if (!(zfsvfs->z_flags & ZSB_XATTR))
+		return (SET_ERROR(EOPNOTSUPP));
+
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, VREAD);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	error = zfs_check_attrname(ap->a_name);
+	if (error != 0)
+		return (error);
+
+	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
+		return (error);
+	error = ENOENT;
+	rw_enter(&zp->z_xattr_lock, RW_READER);
+
+	error = zfs_getextattr_impl(ap, zfs_xattr_compat);
+	if ((error == ENOENT || error == ENOATTR) &&
+	    ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+		/*
+		 * Fall back to the alternate namespace format if we failed to
+		 * find a user xattr.
+		 */
+		error = zfs_getextattr_impl(ap, !zfs_xattr_compat);
+	}
+
+	rw_exit(&zp->z_xattr_lock);
+	zfs_exit(zfsvfs, FTAG);
+	if (error == ENOENT)
+		error = SET_ERROR(ENOATTR);
+	return (error);
+}
+
+static int
+zfs_deleteextattr_dir(struct vop_deleteextattr_args *ap, const char *attrname)
+{
+	vnode_t *xvp = NULL;
+	int error;
+
+	error = zfs_lookup(ap->a_vp, NULL, &xvp, NULL, 0, ap->a_cred,
+	    LOOKUP_XATTR);
+	if (error != 0)
+		return (error);
+	if (zfs_xattr_dotname(attrname)) {
+		vrele(xvp);
+		return (SET_ERROR(ENOENT));
+	}
+	vn_lock(xvp, LK_EXCLUSIVE | LK_RETRY);
+	error = zfs_remove(VTOZ(xvp), attrname, ap->a_cred, 0);
+	vput(xvp);
+	return (error);
+}
+
+static int
+zfs_deleteextattr_sa(struct vop_deleteextattr_args *ap, const char *attrname)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	nvlist_t *nvl;
+	int error;
+
+	error = zfs_ensure_xattr_cached(zp);
+	if (error != 0)
+		return (error);
+
+	ASSERT(RW_WRITE_HELD(&zp->z_xattr_lock));
+	ASSERT3P(zp->z_xattr_cached, !=, NULL);
+
+	nvl = zp->z_xattr_cached;
+	error = nvlist_remove(nvl, attrname, DATA_TYPE_BYTE_ARRAY);
+	if (error != 0)
+		error = SET_ERROR(error);
+	else
+		error = zfs_sa_set_xattr(zp, attrname, NULL, 0);
+	if (error != 0) {
+		zp->z_xattr_cached = NULL;
+		nvlist_free(nvl);
+	}
+	return (error);
+}
+
+static int
+zfs_deleteextattr_impl(struct vop_deleteextattr_args *ap, boolean_t compat)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	char attrname[EXTATTR_MAXNAMELEN+1];
+	int error;
+
+	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
+	    sizeof (attrname), compat);
+	if (error != 0)
+		return (error);
+
+	error = ENOENT;
+	if (zfsvfs->z_use_sa && zp->z_is_sa)
+		error = zfs_deleteextattr_sa(ap, attrname);
+	if (error == ENOENT)
+		error = zfs_deleteextattr_dir(ap, attrname);
+	return (error);
+}
+
+/*
+ * Vnode operation to remove a named attribute.
+ */
+static int
+zfs_netbsd_deleteextattr(void *v)
+{
+	struct vop_deleteextattr_args *ap = v;
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	int error;
+
+	/*
+	 * If the xattr property is off, refuse the request.
+	 */
+	if (!(zfsvfs->z_flags & ZSB_XATTR))
+		return (SET_ERROR(EOPNOTSUPP));
+
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, VWRITE);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	error = zfs_check_attrname(ap->a_name);
+	if (error != 0)
+		return (error);
+
+	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
+		return (error);
+	rw_enter(&zp->z_xattr_lock, RW_WRITER);
+
+	error = zfs_deleteextattr_impl(ap, zfs_xattr_compat);
+	if ((error == ENOENT || error == ENOATTR) &&
+	    ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+		/*
+		 * Fall back to the alternate namespace format if we failed to
+		 * find a user xattr.
+		 */
+		error = zfs_deleteextattr_impl(ap, !zfs_xattr_compat);
+	}
+
+	rw_exit(&zp->z_xattr_lock);
+	zfs_exit(zfsvfs, FTAG);
+	if (error == ENOENT)
+		error = SET_ERROR(ENOATTR);
+	return (error);
+}
+
+/*
+ * The file is looked for before it is made, under the file's
+ * z_xattr_lock held for writing, so that what zfs_create() hands back is
+ * always a new vnode, and locked: zfs_create() makes only new names.
+ */
+static int
+zfs_setextattr_dir(struct vop_setextattr_args *ap, const char *attrname)
+{
+	struct vattr va;
+	vnode_t *xvp = NULL, *vp;
+	znode_t *zp;
+	int error;
+
+	error = zfs_lookup(ap->a_vp, NULL, &xvp, NULL, 0, ap->a_cred,
+	    LOOKUP_XATTR | CREATE_XATTR_DIR);
+	if (error != 0)
+		return (error);
+
+	if (zfs_xattr_dotname(attrname)) {
+		vrele(xvp);
+		return (SET_ERROR(EINVAL));
+	}
+	vn_lock(xvp, LK_EXCLUSIVE | LK_RETRY);
+	error = zfs_xattr_file(xvp, attrname, &vp);
+	if (error == 0) {
+		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+	} else if (error == ENOENT) {
+		vattr_null(&va);
+		va.va_type = VREG;
+		va.va_mode = 0600;
+		vattr_init_mask(&va);
+		error = zfs_create(VTOZ(xvp), attrname, &va, 0, 0600, &zp,
+		    ap->a_cred, 0, NULL);
+		if (error == 0)
+			vp = ZTOV(zp);
+	}
+	vput(xvp);
+	if (error != 0)
+		return (error);
+
+	vattr_null(&va);
+	va.va_size = 0;
+	error = VOP_SETATTR(vp, &va, ap->a_cred);
+	if (error == 0)
+		error = VOP_WRITE(vp, ap->a_uio, IO_UNIT, ap->a_cred);
+	vput(vp);
+	return (error);
+}
+
+static int
+zfs_setextattr_sa(struct vop_setextattr_args *ap, const char *attrname)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	nvlist_t *nvl;
+	size_t sa_size;
+	int error;
+
+	error = zfs_ensure_xattr_cached(zp);
+	if (error != 0)
+		return (error);
+
+	ASSERT(RW_WRITE_HELD(&zp->z_xattr_lock));
+	ASSERT3P(zp->z_xattr_cached, !=, NULL);
+
+	nvl = zp->z_xattr_cached;
+	size_t entry_size = ap->a_uio->uio_resid;
+	if (entry_size > DXATTR_MAX_ENTRY_SIZE)
+		return (SET_ERROR(EFBIG));
+	error = nvlist_size(nvl, &sa_size, NV_ENCODE_XDR);
+	if (error != 0)
+		return (SET_ERROR(error));
+	if (sa_size > DXATTR_MAX_SA_SIZE)
+		return (SET_ERROR(EFBIG));
+	uchar_t *buf = kmem_alloc(entry_size, KM_SLEEP);
+	error = uiomove(buf, entry_size, ap->a_uio);
+	if (error != 0) {
+		error = SET_ERROR(error);
+	} else {
+		error = nvlist_add_byte_array(nvl, attrname, buf, entry_size);
+		if (error != 0)
+			error = SET_ERROR(error);
+	}
+	if (error == 0)
+		error = zfs_sa_set_xattr(zp, attrname, buf, entry_size);
+	kmem_free(buf, entry_size);
+	if (error != 0) {
+		zp->z_xattr_cached = NULL;
+		nvlist_free(nvl);
+	}
+	return (error);
+}
+
+static int
+zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t compat)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	char attrname[EXTATTR_MAXNAMELEN+1];
+	int error;
+
+	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
+	    sizeof (attrname), compat);
+	if (error != 0)
+		return (error);
+
+	struct vop_deleteextattr_args vda = {
+		.a_vp = ap->a_vp,
+		.a_attrnamespace = ap->a_attrnamespace,
+		.a_name = ap->a_name,
+		.a_cred = ap->a_cred,
+	};
+	error = ENOENT;
+	if (zfsvfs->z_use_sa && zp->z_is_sa && zfsvfs->z_xattr_sa) {
+		error = zfs_setextattr_sa(ap, attrname);
+		if (error == 0) {
+			/*
+			 * Successfully put into SA, we need to clear the one
+			 * in dir if present.
+			 */
+			zfs_deleteextattr_dir(&vda, attrname);
+		}
+	}
+	if (error != 0) {
+		error = zfs_setextattr_dir(ap, attrname);
+		if (error == 0 && zp->z_is_sa) {
+			/*
+			 * Successfully put into dir, we need to clear the one
+			 * in SA if present.
+			 */
+			zfs_deleteextattr_sa(&vda, attrname);
+		}
+	}
+	if (error == 0 && ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+		/*
+		 * Also clear all versions of the alternate compat name.
+		 */
+		zfs_deleteextattr_impl(&vda, !compat);
+	}
+	return (error);
+}
+
+/*
+ * Vnode operation to set a named attribute.
+ */
+static int
+zfs_netbsd_setextattr(void *v)
+{
+	struct vop_setextattr_args *ap = v;
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	int error;
+
+	/*
+	 * If the xattr property is off, refuse the request.
+	 */
+	if (!(zfsvfs->z_flags & ZSB_XATTR))
+		return (SET_ERROR(EOPNOTSUPP));
+
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, VWRITE);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	error = zfs_check_attrname(ap->a_name);
+	if (error != 0)
+		return (error);
+
+	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
+		return (error);
+	rw_enter(&zp->z_xattr_lock, RW_WRITER);
+
+	error = zfs_setextattr_impl(ap, zfs_xattr_compat);
+
+	rw_exit(&zp->z_xattr_lock);
+	zfs_exit(zfsvfs, FTAG);
+	return (error);
+}
+
+/*
+ * One name of a list, in the form the caller asked for: a length byte
+ * and the name, as extattr_list_file(2) returns them, or the name and a
+ * NUL, as listxattr(2) does; NetBSD's FFS answers both the same way.
+ */
+static int
+zfs_listextattr_name(struct vop_listextattr_args *ap, const char *name,
+    uint8_t nlen)
+{
+	int error;
+
+	if (ap->a_size != NULL) {
+		*ap->a_size += 1 + nlen;
+		return (0);
+	}
+	if (ap->a_uio == NULL)
+		return (0);
+	if (ap->a_flag & EXTATTR_LIST_LENPREFIX) {
+		error = uiomove(&nlen, 1, ap->a_uio);
+		if (error == 0)
+			error = uiomove(__UNCONST(name), nlen, ap->a_uio);
+	} else {
+		error = uiomove(__UNCONST(name), nlen, ap->a_uio);
+		if (error == 0)
+			error = uiomove(__UNCONST(""), 1, ap->a_uio);
+	}
+	return (error != 0 ? SET_ERROR(error) : 0);
+}
+
+static int
+zfs_listextattr_dir(struct vop_listextattr_args *ap, const char *attrprefix)
+{
+	uint8_t *dirbuf;
+	struct iovec aiov;
+	struct uio auio;
+	vnode_t *xvp = NULL;
+	int error, eof;
+
+	error = zfs_lookup(ap->a_vp, NULL, &xvp, NULL, 0, ap->a_cred,
+	    LOOKUP_XATTR);
+	if (error != 0) {
+		/*
+		 * ENOATTR means that the EA directory does not yet exist,
+		 * i.e. there are no extended attributes there.
+		 */
+		if (error == ENOATTR)
+			error = 0;
+		return (error);
+	}
+
+	dirbuf = kmem_alloc(sizeof (struct dirent), KM_SLEEP);
+	auio.uio_iov = &aiov;
+	auio.uio_iovcnt = 1;
+	auio.uio_rw = UIO_READ;
+	auio.uio_offset = 0;
+	UIO_SETUP_SYSSPACE(&auio);
+
+	size_t plen = strlen(attrprefix);
+
+	vn_lock(xvp, LK_SHARED | LK_RETRY);
+	do {
+		aiov.iov_base = (void *)dirbuf;
+		aiov.iov_len = sizeof (struct dirent);
+		auio.uio_resid = sizeof (struct dirent);
+		error = VOP_READDIR(xvp, &auio, ap->a_cred, &eof, NULL, NULL);
+		if (error != 0)
+			break;
+		int done = sizeof (struct dirent) - auio.uio_resid;
+		if (done == 0)
+			break;
+		for (int pos = 0; pos < done; ) {
+			struct dirent *dp = (struct dirent *)(dirbuf + pos);
+			pos += dp->d_reclen;
+			/*
+			 * XXX: Temporarily we also accept DT_UNKNOWN, as this
+			 * is what we get when attribute was created on Solaris.
+			 */
+			if (dp->d_type != DT_REG && dp->d_type != DT_UNKNOWN)
+				continue;
+			else if (plen == 0 &&
+			    ZFS_XA_NS_PREFIX_FORBIDDEN(dp->d_name))
+				continue;
+			else if (strncmp(dp->d_name, attrprefix, plen) != 0)
+				continue;
+			error = zfs_listextattr_name(ap, dp->d_name + plen,
+			    dp->d_namlen - plen);
+			if (error != 0)
+				break;
+		}
+	} while (!eof && error == 0);
+	vput(xvp);
+	kmem_free(dirbuf, sizeof (struct dirent));
+	return (error);
+}
+
+static int
+zfs_listextattr_sa(struct vop_listextattr_args *ap, const char *attrprefix)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	int error;
+
+	error = zfs_ensure_xattr_cached(zp);
+	if (error != 0)
+		return (error);
+
+	ASSERT(RW_LOCK_HELD(&zp->z_xattr_lock));
+	ASSERT3P(zp->z_xattr_cached, !=, NULL);
+
+	size_t plen = strlen(attrprefix);
+	nvpair_t *nvp = NULL;
+	while ((nvp = nvlist_next_nvpair(zp->z_xattr_cached, nvp)) != NULL) {
+		ASSERT3U(nvpair_type(nvp), ==, DATA_TYPE_BYTE_ARRAY);
+
+		const char *name = nvpair_name(nvp);
+		if (plen == 0 && ZFS_XA_NS_PREFIX_FORBIDDEN(name))
+			continue;
+		else if (strncmp(name, attrprefix, plen) != 0)
+			continue;
+		error = zfs_listextattr_name(ap, name + plen,
+		    strlen(name) - plen);
+		if (error != 0)
+			break;
+	}
+
+	return (error);
+}
+
+static int
+zfs_listextattr_impl(struct vop_listextattr_args *ap, boolean_t compat)
+{
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	char attrprefix[16];
+	int error;
+
+	error = zfs_create_attrname(ap->a_attrnamespace, "", attrprefix,
+	    sizeof (attrprefix), compat);
+	if (error != 0)
+		return (error);
+
+	if (zfsvfs->z_use_sa && zp->z_is_sa)
+		error = zfs_listextattr_sa(ap, attrprefix);
+	if (error == 0)
+		error = zfs_listextattr_dir(ap, attrprefix);
+	return (error);
+}
+
+/*
+ * Vnode operation to retrieve extended attributes on a vnode.
+ */
+static int
+zfs_netbsd_listextattr(void *v)
+{
+	struct vop_listextattr_args *ap = v;
+	znode_t *zp = VTOZ(ap->a_vp);
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+	int error;
+
+	if (ap->a_size != NULL)
+		*ap->a_size = 0;
+
+	/*
+	 * If the xattr property is off, refuse the request.
+	 */
+	if (!(zfsvfs->z_flags & ZSB_XATTR))
+		return (SET_ERROR(EOPNOTSUPP));
+
+	error = extattr_check_cred(ap->a_vp, ap->a_attrnamespace,
+	    ap->a_cred, VREAD);
+	if (error != 0)
+		return (SET_ERROR(error));
+
+	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
+		return (error);
+	rw_enter(&zp->z_xattr_lock, RW_READER);
+
+	error = zfs_listextattr_impl(ap, zfs_xattr_compat);
+	if (error == 0 && ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+		/* Also list user xattrs with the alternate format. */
+		error = zfs_listextattr_impl(ap, !zfs_xattr_compat);
+	}
+
+	rw_exit(&zp->z_xattr_lock);
+	zfs_exit(zfsvfs, FTAG);
+	return (error);
+}
+
+ZFS_MODULE_PARAM(zfs, zfs_, xattr_compat, INT, ZMOD_RW,
+	"Use legacy ZFS xattr naming for writing new user namespace xattrs");
 /*
  * The VOP entry points.
  */
@@ -4590,6 +5348,10 @@ const struct vnodeopv_entry_desc zfs_vnodeop_entries[] = {
 	{ &vop_getacl_desc,		zfs_netbsd_getacl },
 	{ &vop_setacl_desc,		zfs_netbsd_setacl },
 	{ &vop_aclcheck_desc,		zfs_netbsd_aclcheck },
+	{ &vop_getextattr_desc,		zfs_netbsd_getextattr },
+	{ &vop_setextattr_desc,		zfs_netbsd_setextattr },
+	{ &vop_listextattr_desc,		zfs_netbsd_listextattr },
+	{ &vop_deleteextattr_desc,	zfs_netbsd_deleteextattr },
 	{ NULL, NULL }
 };
 
