@@ -11,6 +11,8 @@ AC_DEFUN([ZFS_AC_CONFIG_ALWAYS_SED], [
 		      [ac_cv_inplace="--in-place"],
 		      [$SED -i '' 's#foo#bar#' $tmpfile 2>/dev/null],
 		      [ac_cv_inplace="-i ''"],
+		      [$SED -i 's#foo#bar#' $tmpfile 2>/dev/null],
+		      [ac_cv_inplace="-i"],
 		      [AC_MSG_ERROR([$SED does not support in-place])])
 	])
 	AC_SUBST([ac_inplace], [$ac_cv_inplace])
