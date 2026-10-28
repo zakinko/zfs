@@ -99,6 +99,30 @@ zfsctl_root(zfsvfs_t *zfsvfs, int flags, vnode_t **vpp)
 	return (error);
 }
 
+/*
+ * Put ".zfs" back in the name cache under the root.  getcwd(3) finds a
+ * directory's name in the cache or else in its parent's readdir, where
+ * a hidden .zfs is not; and the cache drops entries like any other, so
+ * an entry made at the lookup of .zfs alone was gone after some churn,
+ * and /bin/pwd under .zfs/snapshot failed 20 times in 20.  A getcwd
+ * that reaches .zfs touches it just before it asks the cache: by ".."
+ * from .zfs/snapshot, or by VOP_ACCESS when it starts in .zfs.  Both
+ * call this.
+ */
+static void
+zfsctl_cache_ctldir(zfsvfs_t *zfsvfs, vnode_t *ctlvp)
+{
+	znode_t *rootzp;
+
+	if (!zfsvfs->z_use_namecache)
+		return;
+	if (zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp) != 0)
+		return;
+	cache_enter(ZTOV(rootzp), ctlvp, ZFS_CTLDIR_NAME,
+	    strlen(ZFS_CTLDIR_NAME), MAKEENTRY);
+	vrele(ZTOV(rootzp));
+}
+
 static int
 zfsctl_snapdir(zfsvfs_t *zfsvfs, vnode_t **vpp)
 {
@@ -318,6 +342,8 @@ zfsctl_lookup(void *v)
 				*vpp = ZTOV(rootzp);
 		} else if (dnode->sn_parent_id == ZFSCTL_INO_ROOT) {
 			error = zfsctl_root(zfsvfs, 0, vpp);
+			if (error == 0)
+				zfsctl_cache_ctldir(zfsvfs, *vpp);
 		} else {
 			error = zfsctl_snapdir(zfsvfs, vpp);
 		}
@@ -358,8 +384,17 @@ static int
 zfsctl_access(void *v)
 {
 	struct vop_access_args *ap = v;
+	vnode_t *vp = ap->a_vp;
+	zfsvfs_t *zfsvfs = vp->v_mount->mnt_data;
 
-	return ((ap->a_accmode & VWRITE) ? SET_ERROR(EACCES) : 0);
+	if (ap->a_accmode & VWRITE)
+		return (SET_ERROR(EACCES));
+	if (VTOSFS(vp)->sn_id == ZFSCTL_INO_ROOT &&
+	    zfs_enter(zfsvfs, FTAG) == 0) {
+		zfsctl_cache_ctldir(zfsvfs, vp);
+		zfs_exit(zfsvfs, FTAG);
+	}
+	return (0);
 }
 
 static int
