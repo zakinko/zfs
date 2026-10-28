@@ -54,6 +54,8 @@
 #include <sys/atomic.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_ctldir.h>
+#include <sys/spa_impl.h>
+#include <sys/zfs_netbsd_dev.h>
 #include <sys/zfs_fuid.h>
 #include <sys/sunddi.h>
 #include <sys/dmu_objset.h>
@@ -1208,6 +1210,78 @@ out:
 	return (error);
 }
 
+/*
+ * Mount the root from a pool, for "root on zfs:pool" or
+ * "zfs:pool/dataset" (setroot() in kern_subr.c).  The pool is imported
+ * from its labels, there being no zpool.cache to read and no zpool to
+ * run, and the dataset is the one named, or else the pool's bootfs, as
+ * the boot loaders of illumos and FreeBSD take it.  It is mounted
+ * read-only, as every root is, for rc.d/root to mount read/write.
+ */
+static int
+zfs_mountroot(void)
+{
+	char *pool, *dsname;
+	const char *spec, *slash;
+	struct mount *mp;
+	spa_t *spa;
+	size_t len;
+	int error;
+
+	/* Asked along with every other file system for any other root. */
+	if (rootspec == NULL ||
+	    strncmp(rootspec, MOUNT_ZFS ":", sizeof (MOUNT_ZFS ":") - 1) != 0)
+		return (SET_ERROR(ENODEV));
+	spec = rootspec + sizeof (MOUNT_ZFS ":") - 1;
+	len = ((slash = strchr(spec, '/')) != NULL) ? slash - spec :
+	    strlen(spec);
+	if (len == 0 || len >= ZFS_MAX_DATASET_NAME_LEN)
+		return (SET_ERROR(EINVAL));
+
+	pool = kmem_zalloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
+	dsname = kmem_zalloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
+	memcpy(pool, spec, len);
+	if ((error = spa_import_rootpool(pool, false)) != 0) {
+		printf("zfs: cannot import root pool %s, error %d\n", pool,
+		    error);
+		goto out;
+	}
+	if (slash != NULL) {
+		(void) strlcpy(dsname, spec, ZFS_MAX_DATASET_NAME_LEN);
+	} else {
+		if ((error = spa_open(pool, &spa, FTAG)) != 0) {
+			printf("zfs: cannot open root pool %s, error %d\n",
+			    pool, error);
+			goto out;
+		}
+		if (spa->spa_bootfs != 0)
+			error = dsl_dsobj_to_dsname(pool, spa->spa_bootfs,
+			    dsname);
+		else
+			(void) strlcpy(dsname, pool, ZFS_MAX_DATASET_NAME_LEN);
+		spa_close(spa, FTAG);
+		if (error != 0)
+			goto out;
+	}
+
+	if ((error = vfs_rootmountalloc(MOUNT_ZFS, dsname, &mp)) != 0)
+		goto out;
+	if ((error = zfs_domount(mp, dsname, "")) != 0) {
+		printf("zfs: cannot mount %s as root, error %d\n", dsname,
+		    error);
+		vfs_unbusy(mp);
+		vfs_rele(mp);
+		goto out;
+	}
+	mountlist_append(mp);
+	(void) VFS_STATVFS(mp, &mp->mnt_stat);
+	vfs_unbusy(mp);
+out:
+	kmem_free(dsname, ZFS_MAX_DATASET_NAME_LEN);
+	kmem_free(pool, ZFS_MAX_DATASET_NAME_LEN);
+	return (error);
+}
+
 static int
 zfs_statvfs(struct mount *mp, struct statvfs *statp)
 {
@@ -1947,7 +2021,7 @@ struct vfsops zfs_vfsops = {
 	.vfs_done = (void (*)(void))nullop,
 	.vfs_start = (void *)nullop,
 	.vfs_quotactl = (void *)eopnotsupp,
-	.vfs_mountroot = (void *)eopnotsupp,
+	.vfs_mountroot = zfs_mountroot,
 	.vfs_snapshot = (void *)eopnotsupp,
 	.vfs_extattrctl = vfs_stdextattrctl,
 	.vfs_suspendctl = genfs_suspendctl,

@@ -35,5 +35,8 @@ int zvol_netbsd_psize(dev_t);
 
 void vdev_disk_init(void);
 void vdev_disk_fini(void);
+int vdev_disk_read_pool_label(const char *, nvlist_t ***, uint64_t *,
+    nvlist_t **);
+int spa_import_rootpool(const char *, bool);
 
 #endif /* _SYS_ZFS_NETBSD_DEV_H */
