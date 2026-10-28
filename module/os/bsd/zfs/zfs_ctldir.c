@@ -96,6 +96,7 @@ zfsctl_snapshot_unmount(const char *snapname)
 {
 	zfsvfs_t *zfsvfs = NULL;
 	vfs_t *vfsp;
+	int error;
 
 	if (strchr(snapname, '@') == NULL)
 		return (0);
@@ -105,5 +106,12 @@ zfsctl_snapshot_unmount(const char *snapname)
 	ASSERT(!dsl_pool_config_held(dmu_objset_pool(zfsvfs->z_os)));
 	vfs_ref(vfsp);
 	vfs_unbusy(vfsp);
-	return (dounmount(vfsp, MNT_FORCE, curlwp));
+	/*
+	 * dounmount() does not take the reference: sys_unmount() drops
+	 * its own after it.  Leaving it kept the mount and its vfsops
+	 * referenced, and modunload of zfs then failed with EBUSY.
+	 */
+	error = dounmount(vfsp, MNT_FORCE, curlwp);
+	vfs_rele(vfsp);
+	return (error);
 }
