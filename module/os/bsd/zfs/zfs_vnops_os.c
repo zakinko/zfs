@@ -5043,6 +5043,14 @@ zfs_netbsd_setattr(void *v)
 
 	vattr_init_mask(vap);
 	vap->va_mask &= ~AT_NOSET;
+	/*
+	 * vn_open() sets the size to 0 for O_TRUNC whatever the vnode
+	 * is, and zfs_setattr() refuses a size on a device with EINVAL,
+	 * so "> /dev/null" failed on a root on ZFS.  ufs_setattr() leaves
+	 * a device's size alone; so does this.
+	 */
+	if (vp->v_type == VCHR || vp->v_type == VBLK)
+		vap->va_mask &= ~AT_SIZE;
 	xva_init(&xvap);
 	xvap.xva_vattr = *vap;
 
