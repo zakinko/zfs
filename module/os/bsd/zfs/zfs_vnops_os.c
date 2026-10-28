@@ -858,6 +858,21 @@ zfs_lookup(vnode_t *dvp, const char *nm, vnode_t **vpp,
 		return (SET_ERROR(EILSEQ));
 	}
 
+	if (zfs_has_ctldir(zdp) && strcmp(nm, ZFS_CTLDIR_NAME) == 0) {
+		zfs_exit(zfsvfs, FTAG);
+		if ((cnp->cn_flags & ISLASTCN) && nameiop != LOOKUP)
+			return (SET_ERROR(EROFS));
+		error = zfsctl_root(zfsvfs, 0, vpp);
+		/*
+		 * getcwd(3) finds a name through the cache, or else by
+		 * reading the parent, where a hidden .zfs is not.
+		 */
+		if (error == 0 && zfsvfs->z_use_namecache)
+			cache_enter(dvp, *vpp, cnp->cn_nameptr,
+			    cnp->cn_namelen, cnp->cn_flags);
+		return (error);
+	}
+
 	error = zfs_dirlook(zdp, nm, &zp);
 	zfs_exit(zfsvfs, FTAG);
 	if (error == 0) {

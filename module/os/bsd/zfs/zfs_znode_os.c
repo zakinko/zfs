@@ -47,6 +47,7 @@
 #include <sys/zfs_refcount.h>
 #include <sys/stat.h>
 #include <sys/zap.h>
+#include <sys/zfs_ctldir.h>
 #include <sys/zfs_znode.h>
 #include <sys/sa.h>
 #include <sys/zfs_sa.h>
@@ -934,8 +935,9 @@ zfs_loadvnode(struct mount *mp, vnode_t *vp, const void *key,
 	uint64_t obj_num;
 	int err;
 
+	/* A .zfs node's key is longer than an object number. */
 	if (key_len != sizeof (obj_num))
-		return (SET_ERROR(EINVAL));
+		return (zfsctl_loadvnode(mp, vp, key, key_len, new_key));
 	memcpy(&obj_num, key, key_len);
 
 	ZFS_OBJ_HOLD_ENTER(zfsvfs, obj_num);

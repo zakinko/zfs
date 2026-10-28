@@ -78,6 +78,7 @@ extern int zfs_newvnode(struct mount *, vnode_t *, vnode_t *, vattr_t *,
 extern const struct vnodeopv_desc zfs_vnodeop_opv_desc;
 extern const struct vnodeopv_desc zfs_fifoop_opv_desc;
 extern const struct vnodeopv_desc zfs_specop_opv_desc;
+extern const struct vnodeopv_desc zfs_sfsop_opv_desc;
 
 /*
  * The options given at mount time, as zfs(8) passes them and as the
@@ -1042,7 +1043,7 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		dsl_prop_unregister_all(dmu_objset_ds(os), zfsvfs);
 }
 
-static int
+int
 zfs_domount(struct mount *mp, const char *osname, const char *opts)
 {
 	uint64_t recordsize, fsid_guid;
@@ -1524,8 +1525,14 @@ zfs_fhtovp(struct mount *mp, struct fid *fhp, int lktype, vnode_t **vpp)
 		return (err);
 	if (fid_gen == 0 &&
 	    (object == ZFSCTL_INO_ROOT || object == ZFSCTL_INO_SNAPDIR)) {
+		err = (zfsvfs->z_ctldir != NULL) ?
+		    zfsctl_fhtovp(zfsvfs, object, vpp) : SET_ERROR(ESTALE);
 		zfs_exit(zfsvfs, FTAG);
-		return (SET_ERROR(EOPNOTSUPP));
+		if (err == 0 && (err = vn_lock(*vpp, lktype)) != 0) {
+			vrele(*vpp);
+			*vpp = NULL;
+		}
+		return (err);
 	}
 	if ((err = zfs_zget(zfsvfs, object, &zp)) != 0) {
 		zfs_exit(zfsvfs, FTAG);
@@ -1553,13 +1560,18 @@ zfs_fhtovp(struct mount *mp, struct fid *fhp, int lktype, vnode_t **vpp)
 static int
 zfs_vptofh(vnode_t *vp, struct fid *fhp, size_t *fh_size)
 {
-	znode_t *zp = VTOZ(vp);
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	znode_t *zp;
+	zfsvfs_t *zfsvfs;
 	zfid_short_t zfid;
-	uint64_t object = zp->z_id, gen;
+	uint64_t object, gen;
 	size_t need, i;
 	int err;
 
+	if (zfsctl_is_node(vp))
+		return (zfsctl_vptofh(vp, fhp, fh_size));
+	zp = VTOZ(vp);
+	zfsvfs = zp->z_zfsvfs;
+	object = zp->z_id;
 	need = offsetof(struct fid, fid_data) + SHORT_FID_LEN;
 	if (*fh_size < need) {
 		*fh_size = need;
@@ -1912,6 +1924,7 @@ static const struct vnodeopv_desc * const zfs_vnodeop_descs[] = {
 	&zfs_vnodeop_opv_desc,
 	&zfs_specop_opv_desc,
 	&zfs_fifoop_opv_desc,
+	&zfs_sfsop_opv_desc,
 	NULL,
 };
 

@@ -45,6 +45,10 @@ int zfsctl_destroy_snapshot(const char *snapname, int force);
 int zfsctl_umount_snapshots(vfs_t *, int, cred_t *);
 
 int zfsctl_lookup_objset(vfs_t *vfsp, uint64_t objsetid, zfsvfs_t **zfsvfsp);
+int zfsctl_loadvnode(struct mount *, vnode_t *, const void *, size_t,
+    const void **);
+int zfsctl_vptofh(vnode_t *, struct fid *, size_t *);
+int zfsctl_fhtovp(zfsvfs_t *, uint64_t, vnode_t **);
 
 #define	ZFSCTL_INO_ROOT		0x1
 #define	ZFSCTL_INO_SNAPDIR	0x2
