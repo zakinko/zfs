@@ -2153,6 +2153,8 @@ enum zio_encrypt {
  */
 #define	ZFS_XA_NS_FREEBSD_PREFIX		"freebsd:"
 #define	ZFS_XA_NS_FREEBSD_PREFIX_LEN		strlen("freebsd:")
+#define	ZFS_XA_NS_NETBSD_PREFIX			"netbsd:"
+#define	ZFS_XA_NS_NETBSD_PREFIX_LEN		strlen("netbsd:")
 #define	ZFS_XA_NS_LINUX_SECURITY_PREFIX		"security."
 #define	ZFS_XA_NS_LINUX_SECURITY_PREFIX_LEN	strlen("security.")
 #define	ZFS_XA_NS_LINUX_SYSTEM_PREFIX		"system."
@@ -2168,6 +2170,7 @@ enum zio_encrypt {
 
 #define	ZFS_XA_NS_PREFIX_FORBIDDEN(name) \
 	(ZFS_XA_NS_PREFIX_MATCH(FREEBSD, name) || \
+	    ZFS_XA_NS_PREFIX_MATCH(NETBSD, name) || \
 	    ZFS_XA_NS_PREFIX_MATCH(LINUX_SECURITY, name) || \
 	    ZFS_XA_NS_PREFIX_MATCH(LINUX_SYSTEM, name) || \
 	    ZFS_XA_NS_PREFIX_MATCH(LINUX_TRUSTED, name) || \

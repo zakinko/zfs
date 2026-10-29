@@ -3875,16 +3875,21 @@ ioflags(int ioflags)
  * kept in the znode's system attributes (xattr=sa) or as files of a
  * hidden directory (xattr=dir).  This is FreeBSD's, whose extattr
  * interface NetBSD shares -- namespaces, names, the length-prefixed
- * list -- with the names ZFS stores encoded as FreeBSD encodes them:
+ * list -- with the names ZFS stores encoded as FreeBSD encodes them,
+ * but for the prefix of the system namespace:
  *
- *	NAMESPACE	XATTR_COMPAT	PREFIX
- *	system		*		freebsd:system:
- *	user		1		(none, as attributes made on Solaris)
- *	user		0		user.
+ *	NAMESPACE	TUNABLE			PREFIX
+ *	system		xattr_freebsd=0		netbsd:system:
+ *	system		xattr_freebsd=1		freebsd:system:
+ *	user		xattr_compat=1		(none, as attributes made on Solaris)
+ *	user		xattr_compat=0		user.
  *
- * NetBSD's own ZFS had no extended attributes, so there are none on its
- * pools to stay compatible with; FreeBSD's encoding lets a pool move
- * between the two.  Its setxattr(2) and listxattr(2) are this same
+ * New attributes are written in the form the tunables name; the other
+ * form is the alternate, which is still found, listed and removed, so
+ * that a pool from FreeBSD keeps its system attributes here and one
+ * written with xattr_freebsd=1 keeps them there.  NetBSD's own ZFS had
+ * no extended attributes, so there are none on its pools to stay
+ * compatible with.  Its setxattr(2) and listxattr(2) are this same
  * interface: a "user.x" set by setxattr(2) is an attribute "user.x" of
  * the user namespace, as on FFS.
  *
@@ -3896,6 +3901,7 @@ ioflags(int ioflags)
  */
 
 int zfs_xattr_compat = 1;
+int zfs_xattr_freebsd = 0;
 
 static int
 zfs_check_attrname(const char *name)
@@ -3912,7 +3918,7 @@ zfs_check_attrname(const char *name)
 
 static int
 zfs_create_attrname(int attrnamespace, const char *name, char *attrname,
-    size_t size, boolean_t compat)
+    size_t size, boolean_t alt)
 {
 	const char *namespace, *prefix, *suffix;
 
@@ -3920,7 +3926,7 @@ zfs_create_attrname(int attrnamespace, const char *name, char *attrname,
 
 	switch (attrnamespace) {
 	case EXTATTR_NAMESPACE_USER:
-		if (compat) {
+		if ((zfs_xattr_compat != 0) != alt) {
 			/*
 			 * This is the default namespace by which we can access
 			 * all attributes created on Solaris.
@@ -3938,7 +3944,8 @@ zfs_create_attrname(int attrnamespace, const char *name, char *attrname,
 		}
 		break;
 	case EXTATTR_NAMESPACE_SYSTEM:
-		prefix = "freebsd:";
+		prefix = ((zfs_xattr_freebsd != 0) != alt) ?
+		    ZFS_XA_NS_FREEBSD_PREFIX : ZFS_XA_NS_NETBSD_PREFIX;
 		namespace = EXTATTR_NAMESPACE_SYSTEM_STRING;
 		suffix = ":";
 		break;
@@ -4076,7 +4083,7 @@ zfs_getextattr_sa(struct vop_getextattr_args *ap, const char *attrname)
 }
 
 static int
-zfs_getextattr_impl(struct vop_getextattr_args *ap, boolean_t compat)
+zfs_getextattr_impl(struct vop_getextattr_args *ap, boolean_t alt)
 {
 	znode_t *zp = VTOZ(ap->a_vp);
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
@@ -4084,7 +4091,7 @@ zfs_getextattr_impl(struct vop_getextattr_args *ap, boolean_t compat)
 	int error;
 
 	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
-	    sizeof (attrname), compat);
+	    sizeof (attrname), alt);
 	if (error != 0)
 		return (error);
 
@@ -4127,14 +4134,13 @@ zfs_netbsd_getextattr(void *v)
 	error = ENOENT;
 	rw_enter(&zp->z_xattr_lock, RW_READER);
 
-	error = zfs_getextattr_impl(ap, zfs_xattr_compat);
-	if ((error == ENOENT || error == ENOATTR) &&
-	    ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+	error = zfs_getextattr_impl(ap, B_FALSE);
+	if (error == ENOENT || error == ENOATTR) {
 		/*
 		 * Fall back to the alternate namespace format if we failed to
-		 * find a user xattr.
+		 * find an xattr.
 		 */
-		error = zfs_getextattr_impl(ap, !zfs_xattr_compat);
+		error = zfs_getextattr_impl(ap, B_TRUE);
 	}
 
 	rw_exit(&zp->z_xattr_lock);
@@ -4192,7 +4198,7 @@ zfs_deleteextattr_sa(struct vop_deleteextattr_args *ap, const char *attrname)
 }
 
 static int
-zfs_deleteextattr_impl(struct vop_deleteextattr_args *ap, boolean_t compat)
+zfs_deleteextattr_impl(struct vop_deleteextattr_args *ap, boolean_t alt)
 {
 	znode_t *zp = VTOZ(ap->a_vp);
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
@@ -4200,7 +4206,7 @@ zfs_deleteextattr_impl(struct vop_deleteextattr_args *ap, boolean_t compat)
 	int error;
 
 	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
-	    sizeof (attrname), compat);
+	    sizeof (attrname), alt);
 	if (error != 0)
 		return (error);
 
@@ -4242,14 +4248,13 @@ zfs_netbsd_deleteextattr(void *v)
 		return (error);
 	rw_enter(&zp->z_xattr_lock, RW_WRITER);
 
-	error = zfs_deleteextattr_impl(ap, zfs_xattr_compat);
-	if ((error == ENOENT || error == ENOATTR) &&
-	    ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+	error = zfs_deleteextattr_impl(ap, B_FALSE);
+	if (error == ENOENT || error == ENOATTR) {
 		/*
 		 * Fall back to the alternate namespace format if we failed to
-		 * find a user xattr.
+		 * find an xattr.
 		 */
-		error = zfs_deleteextattr_impl(ap, !zfs_xattr_compat);
+		error = zfs_deleteextattr_impl(ap, B_TRUE);
 	}
 
 	rw_exit(&zp->z_xattr_lock);
@@ -4352,7 +4357,7 @@ zfs_setextattr_sa(struct vop_setextattr_args *ap, const char *attrname)
 }
 
 static int
-zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t compat)
+zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t alt)
 {
 	znode_t *zp = VTOZ(ap->a_vp);
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
@@ -4360,7 +4365,7 @@ zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t compat)
 	int error;
 
 	error = zfs_create_attrname(ap->a_attrnamespace, ap->a_name, attrname,
-	    sizeof (attrname), compat);
+	    sizeof (attrname), alt);
 	if (error != 0)
 		return (error);
 
@@ -4391,11 +4396,11 @@ zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t compat)
 			zfs_deleteextattr_sa(&vda, attrname);
 		}
 	}
-	if (error == 0 && ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
+	if (error == 0) {
 		/*
 		 * Also clear all versions of the alternate compat name.
 		 */
-		zfs_deleteextattr_impl(&vda, !compat);
+		zfs_deleteextattr_impl(&vda, !alt);
 	}
 	return (error);
 }
@@ -4430,7 +4435,7 @@ zfs_netbsd_setextattr(void *v)
 		return (error);
 	rw_enter(&zp->z_xattr_lock, RW_WRITER);
 
-	error = zfs_setextattr_impl(ap, zfs_xattr_compat);
+	error = zfs_setextattr_impl(ap, B_FALSE);
 
 	rw_exit(&zp->z_xattr_lock);
 	zfs_exit(zfsvfs, FTAG);
@@ -4565,7 +4570,7 @@ zfs_listextattr_sa(struct vop_listextattr_args *ap, const char *attrprefix)
 }
 
 static int
-zfs_listextattr_impl(struct vop_listextattr_args *ap, boolean_t compat)
+zfs_listextattr_impl(struct vop_listextattr_args *ap, boolean_t alt)
 {
 	znode_t *zp = VTOZ(ap->a_vp);
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
@@ -4573,7 +4578,7 @@ zfs_listextattr_impl(struct vop_listextattr_args *ap, boolean_t compat)
 	int error;
 
 	error = zfs_create_attrname(ap->a_attrnamespace, "", attrprefix,
-	    sizeof (attrprefix), compat);
+	    sizeof (attrprefix), alt);
 	if (error != 0)
 		return (error);
 
@@ -4613,10 +4618,10 @@ zfs_netbsd_listextattr(void *v)
 		return (error);
 	rw_enter(&zp->z_xattr_lock, RW_READER);
 
-	error = zfs_listextattr_impl(ap, zfs_xattr_compat);
-	if (error == 0 && ap->a_attrnamespace == EXTATTR_NAMESPACE_USER) {
-		/* Also list user xattrs with the alternate format. */
-		error = zfs_listextattr_impl(ap, !zfs_xattr_compat);
+	error = zfs_listextattr_impl(ap, B_FALSE);
+	if (error == 0) {
+		/* Also list xattrs with the alternate format. */
+		error = zfs_listextattr_impl(ap, B_TRUE);
 	}
 
 	rw_exit(&zp->z_xattr_lock);
@@ -4626,6 +4631,8 @@ zfs_netbsd_listextattr(void *v)
 
 ZFS_MODULE_PARAM(zfs, zfs_, xattr_compat, INT, ZMOD_RW,
 	"Use legacy ZFS xattr naming for writing new user namespace xattrs");
+ZFS_MODULE_PARAM(zfs, zfs_, xattr_freebsd, INT, ZMOD_RW,
+	"Use FreeBSD's prefix for writing new system namespace xattrs");
 /*
  * The VOP entry points.
  */

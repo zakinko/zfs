@@ -1399,8 +1399,9 @@ zpl_xattr_permission(xattr_filldir_t *xf, const char *name, int name_len)
 
 	handler = zpl_xattr_handler(name);
 	if (handler == NULL) {
-		/* Do not expose FreeBSD system namespace xattrs. */
-		if (ZFS_XA_NS_PREFIX_MATCH(FREEBSD, name))
+		/* Do not expose FreeBSD or NetBSD system namespace xattrs. */
+		if (ZFS_XA_NS_PREFIX_MATCH(FREEBSD, name) ||
+		    ZFS_XA_NS_PREFIX_MATCH(NETBSD, name))
 			return (XAPERM_DENY);
 		/*
 		 * Anything that doesn't match a known namespace gets put in the
