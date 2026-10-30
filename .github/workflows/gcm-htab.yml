@@ -41,17 +41,23 @@ jobs:
         run: |
           sudo modprobe -r zfs 2>/dev/null || true
           sudo ./scripts/zfs.sh
-          grep -o '\[[a-z0-9]*\]' /sys/module/zfs/parameters/icp_gcm_impl
+          cat /sys/module/zfs/parameters/icp_gcm_impl
           grep -m1 -o -w -E 'vaes|avx2|pclmulqdq|aes' /proc/cpuinfo | sort -u | xargs
-          truncate -s 512M /tmp/vdev
-          echo passphrase123 | sudo timeout 120 ./zpool create \
+          T=$RUNNER_TEMP
+          truncate -s 512M $T/vdev
+          # An SPL assertion leaves the thread that hit it asleep for
+          # good, so run the I/O in the background and read the log
+          # after a fixed wait instead of waiting for it.
+          sudo sh -c "echo passphrase123 | ./zpool create \
               -O encryption=aes-256-gcm -O keyformat=passphrase \
-              -O keylocation=prompt tgcm /tmp/vdev
-          sudo timeout 120 dd if=/dev/urandom of=/tgcm/f bs=1M count=32 status=none
-          sudo timeout 120 ./zpool export tgcm || echo "export did not finish"
+              -O keylocation=prompt tgcm $T/vdev &&
+              dd if=/dev/urandom of=/tgcm/f bs=1M count=32 status=none &&
+              ./zpool export tgcm && echo IO-DONE" > $T/io.log 2>&1 &
+          sleep 90
+          cat $T/io.log
           echo "== kernel log"
-          sudo dmesg | grep -E 'ASSERT|VERIFY|PANIC|kd_size|spl-kmem' | head -20 || true
+          sudo dmesg | grep -E -A6 'ASSERT|VERIFY|PANIC' | head -40 || true
           if sudo dmesg | grep -q -E 'ASSERT|VERIFY|PANIC'; then
               echo "RESULT: assertion"; exit 1
           fi
-          echo "RESULT: clean"
+          grep -q IO-DONE $T/io.log && echo "RESULT: clean" || { echo "RESULT: io did not finish"; exit 1; }
