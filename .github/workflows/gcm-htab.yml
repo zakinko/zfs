@@ -1,0 +1,57 @@
+name: gcm-htab
+
+# Load OpenZFS built with kmem tracking, write to a GCM-encrypted pool
+# and look for the free-size assertion, at openzfs master and with the
+# fix.  Scratch for one report; not for merging.
+
+on:
+  push:
+    branches: [gcm-htab-test]
+  workflow_dispatch:
+
+jobs:
+  run:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [master, gcm-htab-len]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.ref == 'master' && 'openzfs/zfs' || 'zakinko/zfs' }}
+          ref: ${{ matrix.ref }}
+      - name: Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential autoconf automake libtool \
+              gawk libblkid-dev uuid-dev libudev-dev libssl-dev zlib1g-dev \
+              libaio-dev libattr1-dev libelf-dev libtirpc-dev libffi-dev \
+              python3 python3-dev python3-setuptools python3-cffi \
+              linux-headers-$(uname -r)
+      - name: Build
+        run: |
+          git log -1 --format='%H %s'
+          ./autogen.sh >/dev/null
+          ./configure --enable-debug --enable-debug-kmem \
+              --enable-debug-kmem-tracking >/dev/null
+          make -j$(nproc) >/dev/null
+      - name: Load and exercise GCM
+        run: |
+          sudo modprobe -r zfs 2>/dev/null || true
+          sudo ./scripts/zfs.sh
+          grep -o '\[[a-z0-9]*\]' /sys/module/zfs/parameters/icp_gcm_impl
+          grep -m1 -o -w -E 'vaes|avx2|pclmulqdq|aes' /proc/cpuinfo | sort -u | xargs
+          truncate -s 512M /tmp/vdev
+          echo passphrase123 | sudo timeout 120 ./zpool create \
+              -O encryption=aes-256-gcm -O keyformat=passphrase \
+              -O keylocation=prompt tgcm /tmp/vdev
+          sudo timeout 120 dd if=/dev/urandom of=/tgcm/f bs=1M count=32 status=none
+          sudo timeout 120 ./zpool export tgcm || echo "export did not finish"
+          echo "== kernel log"
+          sudo dmesg | grep -E 'ASSERT|VERIFY|PANIC|kd_size|spl-kmem' | head -20 || true
+          if sudo dmesg | grep -q -E 'ASSERT|VERIFY|PANIC'; then
+              echo "RESULT: assertion"; exit 1
+          fi
+          echo "RESULT: clean"
