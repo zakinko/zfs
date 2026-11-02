@@ -2411,6 +2411,17 @@ top:
 		uint64_t acl_obj;
 		new_mode = (pmode & S_IFMT) | (vap->va_mode & ~S_IFMT);
 
+		/*
+		 * With aclmode=ignore and an ACL that is not trivial, the
+		 * permission bits stay as the ACL has them; only the set-id
+		 * and sticky bits, which no ACE stands for, are changed.
+		 */
+		if (ZTOZSB(zp)->z_acl_mode == ZFS_ACL_IGNORE &&
+		    !(zp->z_pflags & ZFS_ACL_TRIVIAL)) {
+			new_mode = (pmode & ~(S_ISUID | S_ISGID | S_ISVTX)) |
+			    (vap->va_mode & (S_ISUID | S_ISGID | S_ISVTX));
+		}
+
 		if (ZTOZSB(zp)->z_acl_mode == ZFS_ACL_RESTRICTED &&
 		    !(zp->z_pflags & ZFS_ACL_TRIVIAL)) {
 			err = EPERM;

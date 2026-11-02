@@ -459,6 +459,9 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/acl/off/dosmode.ksh \
 	functional/acl/off/posixmode.ksh \
 	functional/acl/off/setup.ksh \
+	functional/acl/nfsv4/aclmode_ignore.ksh \
+	functional/acl/nfsv4/cleanup.ksh \
+	functional/acl/nfsv4/setup.ksh \
 	functional/acl/posix/cleanup.ksh \
 	functional/acl/posix/posix_001_pos.ksh \
 	functional/acl/posix/posix_002_pos.ksh \

@@ -22,6 +22,10 @@ failsafe_user = root
 failsafe = callbacks/zfs_failsafe
 tags = ['functional']
 
+[tests/functional/acl/nfsv4:FreeBSD]
+tests = ['aclmode_ignore']
+tags = ['functional', 'acl', 'nfsv4']
+
 [tests/functional/block_cloning:FreeBSD]
 tests = ['block_cloning_copyfilerange_clone',
     'block_cloning_copyfilerange_clone_partial',

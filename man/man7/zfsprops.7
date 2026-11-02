@@ -664,7 +664,7 @@ The
 property does not apply to POSIX ACLs.
 .It Xo
 .Sy aclmode Ns = Ns Sy discard Ns | Ns Sy groupmask Ns | Ns
-.Sy passthrough Ns | Ns Sy restricted Ns
+.Sy passthrough Ns | Ns Sy restricted Ns | Ns Sy ignore Ns
 .Xc
 Controls how an ACL is modified during chmod(2) and how inherited ACEs
 are modified by the file creation mode:
@@ -700,6 +700,20 @@ on a file or directory with a non-trivial ACL when
 is set to
 .Sy restricted ,
 you must first remove all ACL entries which do not represent the current mode.
+.It Sy ignore
+leaves a non-trivial ACL unchanged when
+.Xr chmod 2
+is used on the file or directory, and the call succeeds.
+The permission bits of the mode keep the values the ACL gives them;
+the set user ID, set group ID and sticky bits are changed as requested,
+as they do not have equivalent ACL entries.
+Inherited ACEs are not modified by the file creation mode.
+A file or directory with a trivial ACL is changed as with
+.Sy discard .
+Note that
+.Xr chmod 2
+can then no longer be used to take access away from a file or directory
+with a non-trivial ACL; the ACL has to be changed instead.
 .El
 .It Sy acltype Ns = Ns Sy off Ns | Ns Sy nfsv4 Ns | Ns Sy posix
 Controls whether ACLs are enabled and if so what type of ACL to use.

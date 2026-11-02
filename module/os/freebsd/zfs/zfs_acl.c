@@ -1446,7 +1446,10 @@ zfs_acl_chmod_setattr(znode_t *zp, zfs_acl_t **aclp, uint64_t mode)
 	else
 		error = zfs_acl_node_read(zp, B_TRUE, aclp, B_TRUE);
 
-	if (error == 0) {
+	if (error == 0 && zp->z_zfsvfs->z_acl_mode == ZFS_ACL_IGNORE &&
+	    !(zp->z_pflags & ZFS_ACL_TRIVIAL)) {
+		/* Keep the ACL as it is; see zfs_setattr(). */
+	} else if (error == 0) {
 		(*aclp)->z_hints = zp->z_pflags & V4_ACL_WIDE_FLAGS;
 		zfs_acl_chmod(ZTOV(zp)->v_type, mode, B_TRUE,
 		    (zp->z_zfsvfs->z_acl_mode == ZFS_ACL_GROUPMASK), *aclp);
@@ -1597,7 +1600,8 @@ zfs_acl_inherit(zfsvfs_t *zfsvfs, vtype_t vtype, zfs_acl_t *paclp,
 			    newflags|ACE_INHERITED_ACE);
 		}
 	}
-	if (zfsvfs->z_acl_mode == ZFS_ACL_RESTRICTED &&
+	if ((zfsvfs->z_acl_mode == ZFS_ACL_RESTRICTED ||
+	    zfsvfs->z_acl_mode == ZFS_ACL_IGNORE) &&
 	    aclp->z_acl_count != 0) {
 		*need_chmod = B_FALSE;
 	}
