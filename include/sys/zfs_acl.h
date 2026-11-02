@@ -192,6 +192,7 @@ typedef struct zfs_acl_ids {
 #define	ZFS_ACL_PASSTHROUGH	3
 #define	ZFS_ACL_RESTRICTED	4
 #define	ZFS_ACL_PASSTHROUGH_X	5
+#define	ZFS_ACL_DECOUPLED	6
 
 struct znode;
 struct zfsvfs;

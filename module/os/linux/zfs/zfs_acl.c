@@ -1158,6 +1158,30 @@ zfs_acl_data_locator(void **dataptr, uint32_t *length, uint32_t buflen,
 	*length = cb->cb_acl_node->z_size;
 }
 
+static int
+ace_trivial_common(void *acep, int aclcnt,
+    uintptr_t (*walk)(void *, uintptr_t, int,
+    uint16_t *, uint16_t *, uint32_t *));
+
+/*
+ * With aclmode=decoupled the permission bits of a file with a non-trivial
+ * ACL are the caller's and take no part in access checks, so the bits
+ * zfs_mode_compute() derives from the ACL are dropped.  A trivial ACL
+ * stands for the mode and stays coupled to it; zfs_zaccess_trivial()
+ * goes by the mode.
+ */
+#define	ZFS_ACL_PERMS	(S_IRWXU | S_IRWXG | S_IRWXO)
+
+static uint64_t
+zfs_mode_keep(zfsvfs_t *zfsvfs, uint64_t fmode, uint64_t mode, zfs_acl_t *aclp)
+{
+	if (zfsvfs->z_acl_mode != ZFS_ACL_DECOUPLED ||
+	    zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4 ||
+	    ace_trivial_common(aclp, 0, zfs_ace_walk) == 0)
+		return (mode);
+	return ((mode & ~(uint64_t)ZFS_ACL_PERMS) | (fmode & ZFS_ACL_PERMS));
+}
+
 int
 zfs_acl_chown_setattr(znode_t *zp)
 {
@@ -1173,9 +1197,10 @@ zfs_acl_chown_setattr(znode_t *zp)
 	error = zfs_acl_node_read(zp, B_TRUE, &aclp, B_FALSE);
 	if (error == 0 && aclp->z_acl_count > 0)
 		zp->z_mode = ZTOI(zp)->i_mode =
-		    zfs_mode_compute(zp->z_mode, aclp,
-		    &zp->z_pflags, KUID_TO_SUID(ZTOI(zp)->i_uid),
-		    KGID_TO_SGID(ZTOI(zp)->i_gid));
+		    zfs_mode_keep(ZTOZSB(zp), zp->z_mode,
+		    zfs_mode_compute(zp->z_mode, aclp, &zp->z_pflags,
+		    KUID_TO_SUID(ZTOI(zp)->i_uid),
+		    KGID_TO_SGID(ZTOI(zp)->i_gid)), aclp);
 
 	/*
 	 * Some ZFS implementations (ZEVO) create neither a ZNODE_ACL
@@ -1357,8 +1382,9 @@ zfs_aclset_common(znode_t *zp, zfs_acl_t *aclp, cred_t *cr, dmu_tx_t *tx)
 
 	mode = zp->z_mode;
 
-	mode = zfs_mode_compute(mode, aclp, &zp->z_pflags,
-	    KUID_TO_SUID(ZTOI(zp)->i_uid), KGID_TO_SGID(ZTOI(zp)->i_gid));
+	mode = zfs_mode_keep(zfsvfs, mode, zfs_mode_compute(mode, aclp,
+	    &zp->z_pflags, KUID_TO_SUID(ZTOI(zp)->i_uid),
+	    KGID_TO_SGID(ZTOI(zp)->i_gid)), aclp);
 
 	zp->z_mode = ZTOI(zp)->i_mode = mode;
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MODE(zfsvfs), NULL,
@@ -1628,7 +1654,11 @@ zfs_acl_chmod_setattr(znode_t *zp, zfs_acl_t **aclp, uint64_t mode)
 	else
 		error = zfs_acl_node_read(zp, B_TRUE, aclp, B_TRUE);
 
-	if (error == 0) {
+	if (error == 0 && ZTOZSB(zp)->z_acl_mode == ZFS_ACL_DECOUPLED &&
+	    ZTOZSB(zp)->z_acl_type == ZFS_ACLTYPE_NFSV4 &&
+	    !(zp->z_pflags & ZFS_ACL_TRIVIAL)) {
+		/* Only the mode changes; see zfs_mode_keep(). */
+	} else if (error == 0) {
 		(*aclp)->z_hints = zp->z_pflags & V4_ACL_WIDE_FLAGS;
 		zfs_acl_chmod(S_ISDIR(ZTOI(zp)->i_mode), mode, B_TRUE,
 		    (ZTOZSB(zp)->z_acl_mode == ZFS_ACL_GROUPMASK), *aclp);
@@ -1780,7 +1810,9 @@ zfs_acl_inherit(zfsvfs_t *zfsvfs, umode_t va_mode, zfs_acl_t *paclp,
 			    newflags|ACE_INHERITED_ACE);
 		}
 	}
-	if (zfsvfs->z_acl_mode == ZFS_ACL_RESTRICTED &&
+	if ((zfsvfs->z_acl_mode == ZFS_ACL_RESTRICTED ||
+	    (zfsvfs->z_acl_mode == ZFS_ACL_DECOUPLED &&
+	    zfsvfs->z_acl_type == ZFS_ACLTYPE_NFSV4)) &&
 	    aclp->z_acl_count != 0) {
 		*need_chmod = B_FALSE;
 	}
@@ -1922,9 +1954,10 @@ zfs_acl_ids_create(znode_t *dzp, int flag, vattr_t *vap, cred_t *cr,
 	}
 
 	if (inherited || vsecp) {
-		acl_ids->z_mode = zfs_mode_compute(acl_ids->z_mode,
-		    acl_ids->z_aclp, &acl_ids->z_aclp->z_hints,
-		    acl_ids->z_fuid, acl_ids->z_fgid);
+		acl_ids->z_mode = zfs_mode_keep(zfsvfs, acl_ids->z_mode,
+		    zfs_mode_compute(acl_ids->z_mode, acl_ids->z_aclp,
+		    &acl_ids->z_aclp->z_hints, acl_ids->z_fuid,
+		    acl_ids->z_fgid), acl_ids->z_aclp);
 		if (ace_trivial_common(acl_ids->z_aclp, 0, zfs_ace_walk) == 0)
 			acl_ids->z_aclp->z_hints |= ZFS_ACL_TRIVIAL;
 	}

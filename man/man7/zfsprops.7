@@ -664,7 +664,7 @@ The
 property does not apply to POSIX ACLs.
 .It Xo
 .Sy aclmode Ns = Ns Sy discard Ns | Ns Sy groupmask Ns | Ns
-.Sy passthrough Ns | Ns Sy restricted Ns
+.Sy passthrough Ns | Ns Sy restricted Ns | Ns Sy decoupled Ns
 .Xc
 Controls how an ACL is modified during chmod(2) and how inherited ACEs
 are modified by the file creation mode:
@@ -700,6 +700,27 @@ on a file or directory with a non-trivial ACL when
 is set to
 .Sy restricted ,
 you must first remove all ACL entries which do not represent the current mode.
+.It Sy decoupled
+separates the mode of a file or directory with a non-trivial ACL from the ACL.
+.Xr chmod 2
+sets the mode as requested and
+.Xr stat 2
+returns it, setting an ACL does not change the mode, and neither
+.Xr chmod 2
+nor the file creation mode modifies the ACL.
+Access is decided by the ACL alone, so the permission bits may show access
+that is not granted, or hide access that is;
+.Xr chmod 2
+cannot take access away, and the ACL has to be changed instead.
+An execute bit is still required by the kernel to run a file, and the set user
+ID, set group ID and sticky bits keep their meaning.
+A file or directory with a trivial ACL is changed as with
+.Sy discard ,
+and keeps its mode coupled to its ACL.
+This value has effect only where
+.Sy acltype Ns = Ns Sy nfsv4
+is in use; elsewhere it behaves as
+.Sy discard .
 .El
 .It Sy acltype Ns = Ns Sy off Ns | Ns Sy nfsv4 Ns | Ns Sy posix
 Controls whether ACLs are enabled and if so what type of ACL to use.
