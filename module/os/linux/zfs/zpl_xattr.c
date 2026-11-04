@@ -1363,10 +1363,12 @@ static xattr_handler_t zpl_xattr_acl_default_handler = {
 
 /*
  * system.nfs4_acl is the name and the format the NFS client gives the same
- * ACL (nfsacl4 of RFC 7530 section 6.2), so nfs4_getfacl(1) and
- * nfs4_setfacl(1) work on both.  The type, flag and mask values of ace_t are
- * those of nfsace4.  There is no idmapper here: who is OWNER@, GROUP@,
- * EVERYONE@ or a number in the caller's user namespace.  A mount's idmapping
+ * ACL (an XDR array of nfsace4, RFC 8881 section 6.2.1), so nfs4_getfacl(1)
+ * and nfs4_setfacl(1) work on both.  The type, flag and mask values of ace_t
+ * are those of nfsace4 (6.2.1.1, 6.2.1.3, 6.2.1.4), less the retention bits
+ * ZFS has no place for.  There is no idmapper here: who is OWNER@, GROUP@,
+ * EVERYONE@ or a number in the caller's user namespace; the other special
+ * identifiers of 6.2.1.5 cannot be stored.  A mount's idmapping
  * does not reach the get handler, so ids read on an idmapped mount are those
  * of the file system, and setting is refused rather than storing the wrong
  * id.
@@ -1404,6 +1406,17 @@ nfs4acl_who(const ace_t *ace, char *who)
 	default:
 		return (-EINVAL);
 	}
+}
+
+/* RFC 8881 6.2.1.5: ACE4_IDENTIFIER_GROUP is zero on special identifiers. */
+static uint32_t
+nfs4acl_flags(const ace_t *ace)
+{
+	uint32_t flags = ace->a_flags & NFS4ACL_FLAGS;
+
+	if (ace->a_flags & (ACE_OWNER | ACE_GROUP | ACE_EVERYONE))
+		flags &= ~ACE_IDENTIFIER_GROUP;
+	return (flags);
 }
 
 static void
@@ -1475,7 +1488,7 @@ __zpl_xattr_nfs4acl_get(struct inode *ip, const char *name, void *buffer,
 	for (int i = 0; i < vsec.vsa_aclcnt; i++) {
 		n = nfs4acl_who(&aces[i], who);
 		nfs4acl_put(&p, aces[i].a_type);
-		nfs4acl_put(&p, aces[i].a_flags & NFS4ACL_FLAGS);
+		nfs4acl_put(&p, nfs4acl_flags(&aces[i]));
 		nfs4acl_put(&p, aces[i].a_access_mask);
 		nfs4acl_put(&p, n);
 		memset(p, 0, roundup(n, 4));
