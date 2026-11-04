@@ -480,11 +480,13 @@ ZPL_IDMAP_IOP_DEFINE(int, zpl_setattr, 2,
 
 	/*
 	 * setattr_prepare() refuses a chmod by anyone but the owner before
-	 * zfs_setattr() could look at the ACL.  ATTR_FORCE skips only that
-	 * check; zfs_setattr() still decides.
+	 * zfs_setattr() could look at the ACL.  ATTR_FORCE skips every check
+	 * in there, so it is set for a plain chmod alone; zfs_setattr() still
+	 * decides and stores no set-ID bits.
 	 */
-	if ((ia->ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID | ATTR_SIZE)) ==
-	    ATTR_MODE && !zpl_inode_owner_or_capable(idmap, ip) &&
+	if ((ia->ia_valid & ATTR_MODE) &&
+	    (ia->ia_valid & ~(ATTR_MODE | ATTR_CTIME)) == 0 &&
+	    !zpl_inode_owner_or_capable(idmap, ip) &&
 	    zfs_chmodwrite_ok(ITOZ(ip), cr, idmap))
 		ia->ia_valid |= ATTR_FORCE;
 
