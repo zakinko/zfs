@@ -4246,6 +4246,16 @@ zfs_netbsd_deleteextattr(void *v)
 
 	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
 		return (error);
+
+	/*
+	 * NetBSD's extattr calls do not look at MNT_RDONLY, and an existing
+	 * attribute directory passes the check in zfs_get_xattrdir(), so a
+	 * write to a snapshot reached dsl_dataset_dirty() and panicked.
+	 */
+	if (zfs_is_readonly(zfsvfs)) {
+		zfs_exit(zfsvfs, FTAG);
+		return (SET_ERROR(EROFS));
+	}
 	rw_enter(&zp->z_xattr_lock, RW_WRITER);
 
 	error = zfs_deleteextattr_impl(ap, B_FALSE);
@@ -4433,6 +4443,16 @@ zfs_netbsd_setextattr(void *v)
 
 	if ((error = zfs_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
 		return (error);
+
+	/*
+	 * NetBSD's extattr calls do not look at MNT_RDONLY, and an existing
+	 * attribute directory passes the check in zfs_get_xattrdir(), so a
+	 * write to a snapshot reached dsl_dataset_dirty() and panicked.
+	 */
+	if (zfs_is_readonly(zfsvfs)) {
+		zfs_exit(zfsvfs, FTAG);
+		return (SET_ERROR(EROFS));
+	}
 	rw_enter(&zp->z_xattr_lock, RW_WRITER);
 
 	error = zfs_setextattr_impl(ap, B_FALSE);
