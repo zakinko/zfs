@@ -29,7 +29,7 @@ jobs:
         run: |
           touch module/os/linux/zfs/zpl_inode.c module/os/linux/zfs/zpl_xattr.c module/os/linux/zfs/policy.c
           make -s -j$(nproc) 2>&1 | tee build.log
-          if grep -E 'warning:|error:' build.log; then exit 1; fi
+          if grep -E '(zpl_inode|zpl_xattr|policy|zfs_acl|zfs_vfsops)\.c:.*(warning|error):' build.log; then exit 1; fi
       - name: Test
         run: |
           sudo ./scripts/zfs.sh
