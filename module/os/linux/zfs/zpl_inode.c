@@ -749,11 +749,11 @@ zpl_get_acl(struct inode *ip, int type)
  * so generic_permission() can answer that one, also in rcu-walk.  The rest
  * have to read the ACL, which can block.
  *
- * The VFS only asks about read, write and execute.  It keeps the delete,
- * chown and chmod checks to itself, so ACE_DELETE and ACE_WRITE_OWNER cannot
- * widen those here.  On a directory MAY_WRITE stands for adding a file,
- * adding a directory and removing an entry; the operation itself checks the
- * one it needs, so any of them will do.
+ * The VFS asks about read, write and execute, and about the ACL and the
+ * owner only where it has the operations below.  It keeps the delete check
+ * to itself, so ACE_DELETE cannot widen that here.  On a directory MAY_WRITE
+ * stands for adding a file, adding a directory and removing an entry; the
+ * operation itself checks the one it needs, so any of them will do.
  */
 #if defined(HAVE_IDMAP_MNTIDMAP)
 static int
@@ -779,6 +779,29 @@ zpl_permission(struct inode *ip, int mask)
 	uint32_t need = 0;
 	cred_t *cr = CRED();
 	int error;
+
+#ifdef HAVE_IOPS_NFS4_ACL
+	/* setattr_prepare() asks when it would otherwise refuse. */
+	if (mask & (MAY_WRITE_ACL | MAY_WRITE_OWNER | MAY_WRITE_TIMES)) {
+		if (zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4)
+			return (-EACCES);
+		if (mask & MAY_NOT_BLOCK)
+			return (-ECHILD);
+		need = (mask & MAY_WRITE_ACL) ? ACE_WRITE_ACL :
+		    (mask & MAY_WRITE_OWNER) ? ACE_WRITE_OWNER :
+		    ACE_WRITE_ATTRIBUTES;
+		crhold(cr);
+		cookie = spl_fstrans_mark();
+		if ((error = zpl_enter_verify_zp(zfsvfs, zp, FTAG)) == 0) {
+			error = -zfs_zaccess_idmap(zp, need, 0, B_FALSE, cr,
+			    (zidmap_t *)idmap);
+			zpl_exit(zfsvfs, FTAG);
+		}
+		spl_fstrans_unmark(cookie);
+		crfree(cr);
+		return (error);
+	}
+#endif
 
 	if (mask & MAY_READ)
 		need |= ACE_READ_DATA;
@@ -834,6 +857,10 @@ const struct inode_operations zpl_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };
 
 const struct inode_operations zpl_dir_inode_operations = {
@@ -859,6 +886,10 @@ const struct inode_operations zpl_dir_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };
 
 const struct inode_operations zpl_symlink_inode_operations = {
@@ -881,4 +912,8 @@ const struct inode_operations zpl_special_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };

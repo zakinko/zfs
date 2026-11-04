@@ -76,6 +76,10 @@
 #include <sys/zpl.h>
 #include <linux/vfs_compat.h>
 
+#ifdef HAVE_IOPS_NFS4_ACL
+#include <linux/nfs4_acl.h>
+#endif
+
 #define	NFS4ACL_XATTR		"system.nfs4_acl"
 
 enum xattr_permission {
@@ -1376,6 +1380,7 @@ static xattr_handler_t zpl_xattr_acl_default_handler = {
 #define	NFS4ACL_FLAGS		0xff
 #define	NFS4ACL_WHO_MAX		16
 
+#ifndef HAVE_IOPS_NFS4_ACL
 static int
 __zpl_xattr_nfs4acl_list(struct inode *ip, char *list, size_t list_size,
     const char *name, size_t name_len)
@@ -1408,6 +1413,8 @@ nfs4acl_who(const ace_t *ace, char *who)
 	}
 }
 
+#endif /* !HAVE_IOPS_NFS4_ACL */
+
 /* RFC 8881 6.2.1.5: ACE4_IDENTIFIER_GROUP is zero on special identifiers. */
 static uint32_t
 nfs4acl_flags(const ace_t *ace)
@@ -1419,6 +1426,7 @@ nfs4acl_flags(const ace_t *ace)
 	return (flags);
 }
 
+#ifndef HAVE_IOPS_NFS4_ACL
 static void
 nfs4acl_put(char **p, uint32_t val)
 {
@@ -1625,12 +1633,152 @@ __zpl_xattr_nfs4acl_set(zidmap_t *idmap, struct inode *ip, const char *name,
 }
 ZPL_XATTR_SET_WRAPPER(zpl_xattr_nfs4acl_set);
 
+#else
+struct nfs4_acl *
+zpl_get_nfs4_acl(struct dentry *dentry, enum nfs4_acl_type type)
+{
+	vsecattr_t vsec = {
+		.vsa_mask = VSA_ACE | VSA_ACECNT | VSA_ACE_ALLTYPES
+	};
+	struct inode *ip = d_inode(dentry);
+	fstrans_cookie_t cookie;
+	struct nfs4_acl *acl;
+	cred_t *cr = CRED();
+	const ace_t *aces;
+	int error;
+
+	if (type != NFS4ACL_ACL || ITOZSB(ip)->z_acl_type != ZFS_ACLTYPE_NFSV4)
+		return (ERR_PTR(-EOPNOTSUPP));
+
+	crhold(cr);
+	cookie = spl_fstrans_mark();
+	error = -zfs_getsecattr(ITOZ(ip), &vsec, 0, cr);
+	spl_fstrans_unmark(cookie);
+	crfree(cr);
+	if (error != 0)
+		return (ERR_PTR(error));
+
+	/* The caller frees this with kfree(), so not kmem_alloc(). */
+	acl = kzalloc(struct_size(acl, aces, vsec.vsa_aclcnt), GFP_KERNEL);
+	if (acl == NULL) {
+		acl = ERR_PTR(-ENOMEM);
+		goto out;
+	}
+	acl->naces = vsec.vsa_aclcnt;
+	aces = vsec.vsa_aclentp;
+	for (int i = 0; i < vsec.vsa_aclcnt; i++) {
+		struct nfs4_ace *ace = &acl->aces[i];
+
+		ace->type = aces[i].a_type;
+		ace->flag = nfs4acl_flags(&aces[i]);
+		ace->access_mask = aces[i].a_access_mask;
+		switch (aces[i].a_flags & ACE_TYPE_FLAGS) {
+		case ACE_OWNER:
+			ace->whotype = NFS4_ACL_WHO_OWNER;
+			break;
+		case ACE_GROUP | ACE_IDENTIFIER_GROUP:
+			ace->whotype = NFS4_ACL_WHO_GROUP;
+			break;
+		case ACE_EVERYONE:
+			ace->whotype = NFS4_ACL_WHO_EVERYONE;
+			break;
+		case ACE_IDENTIFIER_GROUP:
+			ace->whotype = NFS4_ACL_WHO_NAMED;
+			ace->who_gid = SGID_TO_KGID(aces[i].a_who);
+			break;
+		case 0:
+			ace->whotype = NFS4_ACL_WHO_NAMED;
+			ace->who_uid = SUID_TO_KUID(aces[i].a_who);
+			break;
+		default:
+			kfree(acl);
+			acl = ERR_PTR(-EINVAL);
+			goto out;
+		}
+	}
+out:
+	kmem_free(vsec.vsa_aclentp, vsec.vsa_aclentsz);
+	return (acl);
+}
+
+int
+zpl_set_nfs4_acl(struct dentry *dentry, enum nfs4_acl_type type,
+    const struct nfs4_acl *acl)
+{
+	vsecattr_t vsec = { .vsa_mask = VSA_ACE };
+	struct inode *ip = d_inode(dentry);
+	fstrans_cookie_t cookie;
+	cred_t *cr = CRED();
+	ace_t *aces;
+	int error = 0;
+
+	if (type != NFS4ACL_ACL || ITOZSB(ip)->z_acl_type != ZFS_ACLTYPE_NFSV4)
+		return (-EOPNOTSUPP);
+	if (acl->naces == 0)
+		return (-EINVAL);
+	if (acl->naces > MAX_ACL_ENTRIES)
+		return (-E2BIG);
+
+	vsec.vsa_aclcnt = acl->naces;
+	vsec.vsa_aclentsz = acl->naces * sizeof (ace_t);
+	vsec.vsa_aclentp = aces = kmem_zalloc(vsec.vsa_aclentsz, KM_SLEEP);
+
+	for (int i = 0; i < acl->naces && error == 0; i++) {
+		const struct nfs4_ace *ace = &acl->aces[i];
+
+		aces[i].a_type = ace->type;
+		aces[i].a_flags = ace->flag;
+		aces[i].a_access_mask = ace->access_mask;
+		aces[i].a_who = -1;
+		if (ace->type > ACE_SYSTEM_ALARM_ACE_TYPE ||
+		    (ace->flag & ~NFS4ACL_FLAGS) != 0 ||
+		    (ace->access_mask & ~ACE_ALL_PERMS) != 0) {
+			error = -EINVAL;
+			break;
+		}
+		switch (ace->whotype) {
+		case NFS4_ACL_WHO_OWNER:
+			aces[i].a_flags |= ACE_OWNER;
+			break;
+		case NFS4_ACL_WHO_GROUP:
+			aces[i].a_flags |= ACE_GROUP | ACE_IDENTIFIER_GROUP;
+			break;
+		case NFS4_ACL_WHO_EVERYONE:
+			aces[i].a_flags |= ACE_EVERYONE;
+			break;
+		case NFS4_ACL_WHO_NAMED:
+			if (ace->flag & ACE_IDENTIFIER_GROUP)
+				aces[i].a_who = KGID_TO_SGID(ace->who_gid);
+			else
+				aces[i].a_who = KUID_TO_SUID(ace->who_uid);
+			break;
+		default:
+			/* An ACE on disk names a number. */
+			error = -EINVAL;
+			break;
+		}
+	}
+	if (error == 0) {
+		crhold(cr);
+		cookie = spl_fstrans_mark();
+		error = -zfs_setsecattr(ITOZ(ip), &vsec, 0, cr);
+		spl_fstrans_unmark(cookie);
+		crfree(cr);
+	}
+
+	kmem_free(vsec.vsa_aclentp, vsec.vsa_aclentsz);
+	return (error);
+}
+#endif /* HAVE_IOPS_NFS4_ACL */
+
+#ifndef HAVE_IOPS_NFS4_ACL
 static xattr_handler_t zpl_xattr_nfs4acl_handler = {
 	.name	= NFS4ACL_XATTR,
 	.list	= zpl_xattr_nfs4acl_list,
 	.get	= zpl_xattr_nfs4acl_get,
 	.set	= zpl_xattr_nfs4acl_set,
 };
+#endif
 
 xattr_handler_t *zpl_xattr_handlers[] = {
 	&zpl_xattr_security_handler,
@@ -1640,7 +1788,9 @@ xattr_handler_t *zpl_xattr_handlers[] = {
 	&zpl_xattr_acl_access_handler,
 	&zpl_xattr_acl_default_handler,
 #endif /* CONFIG_FS_POSIX_ACL */
+#ifndef HAVE_IOPS_NFS4_ACL
 	&zpl_xattr_nfs4acl_handler,
+#endif
 	NULL
 };
 
@@ -1669,8 +1819,10 @@ zpl_xattr_handler(const char *name)
 		return (&zpl_xattr_acl_default_handler);
 #endif /* CONFIG_FS_POSIX_ACL */
 
+#ifndef HAVE_IOPS_NFS4_ACL
 	if (strcmp(name, NFS4ACL_XATTR) == 0)
 		return (&zpl_xattr_nfs4acl_handler);
+#endif
 
 	return (NULL);
 }
