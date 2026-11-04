@@ -804,6 +804,9 @@ zfs_prop_init(void)
 	zprop_register_index(ZFS_PROP_LONGNAME, "longname", 0, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM, "on | off", "LONGNAME", boolean_table,
 	    sfeatures);
+	zprop_register_index(ZFS_PROP_SUIDDIR, "suiddir", 0, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM, "on | off", "SUIDDIR", boolean_table,
+	    sfeatures);
 
 	zfs_mod_list_supported_free(sfeatures);
 }

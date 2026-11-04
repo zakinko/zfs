@@ -1392,6 +1392,27 @@ This was only supported by Linux prior to 5.15, and was buggy there,
 and is not supported by
 .Fx .
 On Solaris it's used for SMB clients.
+.It Sy suiddir Ns = Ns Sy on Ns | Ns Sy off
+When
+.Sy on ,
+on
+.Fx
+and
+.Nx ,
+a file made in a directory that has the set-user-ID bit and is not owned by
+root is owned by the owner of the directory, not by its creator.
+The new file gets no execute or set-ID bits, and a new directory inherits the
+set-user-ID bit.
+Creators then have only the rights the ACL gives them, so they cannot change
+the ACL of what they made.
+This follows the
+.Sy suiddir
+mount option of UFS on
+.Fx ,
+and like it should not be used where users can run programs on files that a
+trusted account owns.
+The default is
+.Sy off .
 .It Sy longname Ns = Ns Sy on Ns | Ns Sy off
 Controls support for filenames longer than 255 bytes, up to 1023 bytes.
 The default is
