@@ -158,10 +158,16 @@ acltype_changed_cb(void *arg, uint64_t newval)
 {
 	zfsvfs_t *zfsvfs = arg;
 
+#ifdef HAVE_IOPS_NFS4_ACL
+	zfsvfs->z_sb->s_iflags &= ~SB_I_NFS4ACL;
+#endif
 	switch (newval) {
 	case ZFS_ACLTYPE_NFSV4:
 		zfsvfs->z_acl_type = ZFS_ACLTYPE_NFSV4;
 		zfsvfs->z_sb->s_flags &= ~SB_POSIXACL;
+#ifdef HAVE_IOPS_NFS4_ACL
+		zfsvfs->z_sb->s_iflags |= SB_I_NFS4ACL;
+#endif
 		break;
 	case ZFS_ACLTYPE_OFF:
 		zfsvfs->z_acl_type = ZFS_ACLTYPE_OFF;
