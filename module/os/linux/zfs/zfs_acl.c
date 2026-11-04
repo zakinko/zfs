@@ -2501,7 +2501,13 @@ zfs_zaccess_common(znode_t *zp, uint32_t v4_mode, uint32_t *working_mode,
 		return (SET_ERROR(EPERM));
 	}
 
-	if (zp->z_pflags & ZFS_ACL_TRIVIAL)
+	/*
+	 * ZFS_ACL_TRIVIAL says that the ACL adds nothing to the mode as far
+	 * as the kernel's own checks go.  It can still hold a DENY on a bit
+	 * the mode has no place for, so under nfsv4 the ACL decides.
+	 */
+	if ((zp->z_pflags & ZFS_ACL_TRIVIAL) &&
+	    zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4)
 		return (zfs_zaccess_trivial(zp, working_mode, cr, idmap));
 
 	return (zfs_zaccess_aces_check(zp, working_mode, B_FALSE, cr, idmap));

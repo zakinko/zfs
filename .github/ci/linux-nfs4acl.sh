@@ -78,6 +78,13 @@ nfs4_setfacl -a D::1235:r dn
 no "deny ACE refuses a mode-readable file" as 1235 cat dn
 ok "others still read" as 1236 cat dn
 
+# A DENY on a bit the mode has no place for leaves the flag ZFS_ACL_TRIVIAL.
+echo data > tv
+chown 1234 tv
+nfs4_setfacl -a D::EVERYONE@:C tv
+no "owner@ implied: deny write_acl to someone else" as 1235 nfs4_setfacl -a A::1236:r tv
+ok "the owner keeps the implicit right" as 1234 nfs4_setfacl -a A::1236:r tv
+
 # Capabilities.  A root without them gets what the ACL gives.
 echo data > cap
 chown 1235 cap
