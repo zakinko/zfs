@@ -21,6 +21,8 @@
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_vnops.h>
+#include <sys/zfs_acl.h>
+#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_znode.h>
 #include <sys/dmu_objset.h>
 #include <sys/spa_impl.h>
@@ -742,6 +744,83 @@ zpl_get_acl(struct inode *ip, int type)
 
 #endif
 
+/*
+ * With acltype=nfsv4 the ACL decides.  A trivial ACL says what the mode says,
+ * so generic_permission() can answer that one, also in rcu-walk.  The rest
+ * have to read the ACL, which can block.
+ *
+ * The VFS only asks about read, write and execute.  It keeps the delete,
+ * chown and chmod checks to itself, so ACE_DELETE and ACE_WRITE_OWNER cannot
+ * widen those here.  On a directory MAY_WRITE stands for adding a file,
+ * adding a directory and removing an entry; the operation itself checks the
+ * one it needs, so any of them will do.
+ */
+#if defined(HAVE_IDMAP_MNTIDMAP)
+static int
+zpl_permission(struct mnt_idmap *idmap, struct inode *ip, int mask)
+#elif defined(HAVE_IDMAP_USERNS)
+static int
+zpl_permission(struct user_namespace *idmap, struct inode *ip, int mask)
+#else
+static int
+zpl_permission(struct inode *ip, int mask)
+#endif
+{
+#if !defined(HAVE_IDMAP_MNTIDMAP) && !defined(HAVE_IDMAP_USERNS)
+	zidmap_t *idmap = zfs_init_idmap;
+#endif
+	static const uint32_t dirwrite[] = {
+		ACE_ADD_FILE, ACE_ADD_SUBDIRECTORY, ACE_DELETE_CHILD
+	};
+	znode_t *zp = ITOZ(ip);
+	zfsvfs_t *zfsvfs = ITOZSB(ip);
+	fstrans_cookie_t cookie;
+	boolean_t dirw = (mask & MAY_WRITE) && S_ISDIR(ip->i_mode);
+	uint32_t need = 0;
+	cred_t *cr = CRED();
+	int error;
+
+	if (mask & MAY_READ)
+		need |= ACE_READ_DATA;
+	if (mask & MAY_EXEC)
+		need |= ACE_EXECUTE;
+	if ((mask & MAY_WRITE) && !dirw)
+		need |= ACE_WRITE_DATA;
+
+	if (zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4 ||
+	    (zp->z_pflags & ZFS_ACL_TRIVIAL) || (need == 0 && !dirw))
+		return (zpl_generic_permission((zidmap_t *)idmap, ip, mask));
+
+	if (need == ACE_EXECUTE && !dirw &&
+	    (zp->z_pflags & ZFS_NO_EXECS_DENIED))
+		return (0);
+
+	if (mask & MAY_NOT_BLOCK)
+		return (-ECHILD);
+
+	crhold(cr);
+	cookie = spl_fstrans_mark();
+	if ((error = zpl_enter_verify_zp(zfsvfs, zp, FTAG)) != 0)
+		goto out;
+
+	error = -zfs_zaccess_idmap(zp, need, 0, B_FALSE, cr,
+	    (zidmap_t *)idmap);
+	if (error == 0 && dirw) {
+		for (int i = 0; i < ARRAY_SIZE(dirwrite); i++) {
+			error = -zfs_zaccess_idmap(zp, dirwrite[i], 0, B_FALSE,
+			    cr, (zidmap_t *)idmap);
+			if (error == 0)
+				break;
+		}
+	}
+
+	zpl_exit(zfsvfs, FTAG);
+out:
+	spl_fstrans_unmark(cookie);
+	crfree(cr);
+	return (error);
+}
+
 const struct inode_operations zpl_inode_operations = {
 	.setattr	= zpl_setattr,
 	.getattr	= zpl_getattr,
@@ -754,6 +833,7 @@ const struct inode_operations zpl_inode_operations = {
 	.get_acl	= zpl_get_acl,
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
+	.permission	= zpl_permission,
 };
 
 const struct inode_operations zpl_dir_inode_operations = {
@@ -778,6 +858,7 @@ const struct inode_operations zpl_dir_inode_operations = {
 	.get_acl	= zpl_get_acl,
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
+	.permission	= zpl_permission,
 };
 
 const struct inode_operations zpl_symlink_inode_operations = {
@@ -799,4 +880,5 @@ const struct inode_operations zpl_special_inode_operations = {
 	.get_acl	= zpl_get_acl,
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
+	.permission	= zpl_permission,
 };

@@ -28,6 +28,7 @@
 #include <sys/policy.h>
 #include <linux/security.h>
 #include <linux/vfs_compat.h>
+#include <sys/zfs_znode.h>
 
 static int
 priv_policy_ns(const cred_t *cr, int capability, int err,
@@ -95,13 +96,41 @@ secpolicy_sys_config(const cred_t *cr, boolean_t checkonly)
  * Like secpolicy_vnode_access() but we get the actual wanted mode and the
  * current mode of the file, not the missing bits.
  *
- * Enforced in the Linux VFS.
+ * Enforced in the Linux VFS, unless the file system uses NFSv4 ACLs.  Then
+ * zpl_permission() decides and the capabilities that generic_permission()
+ * would honour are honoured here.  uid 0 is not special: a root that has
+ * dropped its capabilities gets no more than the ACL gives it.
  */
 int
 secpolicy_vnode_access2(const cred_t *cr, struct inode *ip, uid_t owner,
     mode_t curmode, mode_t wantmode)
 {
-	return (0);
+	mode_t missing = ~curmode & wantmode;
+
+	if (ITOZSB(ip)->z_acl_type != ZFS_ACLTYPE_NFSV4 || missing == 0)
+		return (0);
+
+#if defined(CONFIG_USER_NS)
+	if (!kuid_has_mapping(cr->user_ns, SUID_TO_KUID(owner)))
+		return (EACCES);
+#endif
+
+	if (S_ISDIR(ip->i_mode)) {
+		if (!(wantmode & S_IWUSR) &&
+		    priv_policy_user(cr, CAP_DAC_READ_SEARCH, EACCES) == 0)
+			return (0);
+		return (priv_policy_user(cr, CAP_DAC_OVERRIDE, EACCES));
+	}
+
+	if (wantmode == S_IRUSR &&
+	    priv_policy_user(cr, CAP_DAC_READ_SEARCH, EACCES) == 0)
+		return (0);
+
+	/* As in generic_permission(), execute needs an execute bit. */
+	if (!(missing & S_IXUSR) || (ip->i_mode & S_IXUGO))
+		return (priv_policy_user(cr, CAP_DAC_OVERRIDE, EACCES));
+
+	return (EACCES);
 }
 
 /*
