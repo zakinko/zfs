@@ -120,15 +120,29 @@ ok "malformed ACLs refused" python3 /var/tmp/nfs4acl-bad.py
 rm -f /var/tmp/nfs4acl-bad.py
 ok "group entry round trips" sh -c "nfs4_setfacl -a A:g:1500:r cap && nfs4_getfacl cap | grep -q ':1500:'"
 
-# Idmapped mount: access follows the mapping, setting is refused.
+# Idmapped mount: access follows the mapping, setting is refused.  Which id
+# of the option is which is taken from what the mount shows.
 mkdir -p /mnt/id
-if mount --bind -o X-mount.idmap=u:1234:5000:1 /tank/d /mnt/id; then
+: > idown
+chown 1234:1234 idown
+M=
+for spec in b:1234:5000:1 b:5000:1234:1; do
+	mount --bind -o X-mount.idmap=$spec /tank/d /mnt/id || { umount /mnt/id 2>/dev/null; continue; }
+	if [ "$(stat -c %u /mnt/id/idown)" = 5000 ]; then
+		M=$spec
+		break
+	fi
+	umount /mnt/id
+done
+if [ -n "$M" ]; then
+	echo "idmap $M"
 	ok "idmapped: mapped uid reads" as 5000 cat /mnt/id/cap
 	no "idmapped: unmapped uid refused" as 1234 cat /mnt/id/cap
 	no "idmapped: setting refused" nfs4_setfacl -a A::1:r /mnt/id/cap
+	ok "idmapped: raw read still works" nfs4_getfacl /mnt/id/cap
 	umount /mnt/id
 else
-	fail "idmapped mount failed"
+	fail "no idmapped mount showed uid 5000"
 fi
 
 # off is what it was.
