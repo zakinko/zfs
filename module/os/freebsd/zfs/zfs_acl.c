@@ -2448,7 +2448,7 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 		 */
 		if (error == 0 && (working_mode & ACE_WRITE_ACL) &&
 		    zp->z_zfsvfs->z_aclownerdeny && owner == crgetuid(cr) &&
-		    crgetuid(cr) != 0)
+		    secpolicy_zfs(cr) != 0)
 			error = SET_ERROR(EACCES);
 		if (error == 0 && (working_mode & ACE_WRITE_ACL))
 			error = secpolicy_vnode_setdac(check_vp, cr, owner);
