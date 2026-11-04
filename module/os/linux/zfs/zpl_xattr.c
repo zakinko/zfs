@@ -77,7 +77,7 @@
 #include <linux/vfs_compat.h>
 
 #ifdef HAVE_IOPS_NFS4_ACL
-#include <linux/nfs4.h>
+#include <linux/nfs4_acl.h>
 #endif
 
 #define	NFS4ACL_XATTR		"system.nfs4_acl"

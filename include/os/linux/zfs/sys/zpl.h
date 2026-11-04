@@ -36,6 +36,7 @@ extern void zpl_vap_init(vattr_t *vap, struct inode *dir,
     umode_t mode, cred_t *cr, zidmap_t *idmap);
 
 #ifdef HAVE_IOPS_NFS4_ACL
+#include <linux/nfs4_acl.h>
 struct nfs4_acl *zpl_get_nfs4_acl(struct dentry *, enum nfs4_acl_type);
 int zpl_set_nfs4_acl(struct dentry *, enum nfs4_acl_type,
     const struct nfs4_acl *);

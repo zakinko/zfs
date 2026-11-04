@@ -191,7 +191,7 @@ dnl #
 AC_DEFUN([ZFS_AC_KERNEL_SRC_INODE_OPERATIONS_NFS4_ACL], [
 	ZFS_LINUX_TEST_SRC([inode_operations_nfs4_acl], [
 		#include <linux/fs.h>
-		#include <linux/nfs4.h>
+		#include <linux/nfs4_acl.h>
 
 		static struct inode_operations iops __attribute__ ((unused));
 		static int flag __attribute__ ((unused)) = SB_I_NFS4ACL;
