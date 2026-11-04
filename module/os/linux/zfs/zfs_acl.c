@@ -2743,11 +2743,14 @@ zfs_zaccess_idmap(znode_t *zp, int mode, int flags, boolean_t skipaclchk,
 		 * The implicit right of the owner is a MAY in RFC 8881
 		 * 6.3.1.1, there to keep the ACL changeable.  A privileged
 		 * user does that here.  chmod takes
-		 * secpolicy_vnode_setattr() and is not affected.
+		 * secpolicy_vnode_setattr() and is not affected.  A trivial
+		 * ACL refuses nothing: zfs_zaccess_trivial() never read it
+		 * and only cannot map write_acl to the mode.
 		 */
 		if (error == 0 && (working_mode & ACE_WRITE_ACL) &&
-		    ZTOZSB(zp)->z_aclownerdeny && owner == crgetuid(cr) &&
-		    secpolicy_zfs(cr) != 0)
+		    ZTOZSB(zp)->z_aclownerdeny &&
+		    !(check_zp->z_pflags & ZFS_ACL_TRIVIAL) &&
+		    owner == crgetuid(cr) && secpolicy_vnode_remove(cr) != 0)
 			error = SET_ERROR(EACCES);
 		if (error == 0 && (working_mode & ACE_WRITE_ACL))
 			error = secpolicy_vnode_setdac(cr, owner);
