@@ -84,6 +84,13 @@ ok "root with capabilities reads" cat cap
 no "root without capabilities refused" \
     setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all cat cap
 
+# RFC 8881 6.2.1.5: no group flag on GROUP@, and ignored if a client sends it.
+ok "GROUP@ encoded without the group flag" python3 -c "
+import os,struct
+os.setxattr('dn','system.nfs4_acl',struct.pack('>5I',1,0,0x40,1,6)+b'GROUP@\\0\\0')
+b=os.getxattr('dn','system.nfs4_acl')
+assert struct.unpack('>I',b[8:12])[0]==0 and b[20:26]==b'GROUP@'"
+
 # Malformed values must fail cleanly.
 cat > /var/tmp/nfs4acl-bad.py <<'PY'
 import os, struct

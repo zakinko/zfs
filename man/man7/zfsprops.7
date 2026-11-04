@@ -745,10 +745,20 @@ indicates that NFSv4-style ZFS ACLs should be used.
 These ACLs can be managed with the
 .Xr getfacl 1
 and
-.Xr setfacl 1 .
-The
-.Sy nfsv4
-ZFS ACL type is not yet supported on Linux.
+.Xr setfacl 1
+on
+.Fx ,
+and with
+.Xr nfs4_getfacl 1
+and
+.Xr nfs4_setfacl 1
+on Linux, where a principal is given by number.
+On Linux the kernel still makes its own checks for chown, chmod and removal,
+so
+.Sy write_owner
+and
+.Sy delete
+in an ACL do not widen those.
 .It Sy posix
 indicates POSIX ACLs should be used.
 POSIX ACLs are specific to Linux and are not functional on other platforms.
