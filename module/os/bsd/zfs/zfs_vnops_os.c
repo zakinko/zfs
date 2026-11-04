@@ -4657,6 +4657,13 @@ zfs_netbsd_lookup(void *v)
 	    (dvp->v_mount->mnt_flag & MNT_RDONLY) &&
 	    (cnp->cn_nameiop == DELETE || cnp->cn_nameiop == RENAME))
 		return (SET_ERROR(EROFS));
+	/*
+	 * Search permission comes before the name cache, as in ufs_lookup().
+	 * The cache holds what any user looked up, so zfs_lookup()'s own
+	 * check alone let a cached name through a directory denying execute.
+	 */
+	if ((error = VOP_ACCESS(dvp, VEXEC, cnp->cn_cred)) != 0)
+		return (error);
 	/* The name cache answers first, as for NetBSD's own. */
 	if (cache_lookup(dvp, cnp->cn_nameptr, cnp->cn_namelen,
 	    cnp->cn_nameiop, cnp->cn_flags, NULL, ap->a_vpp)) {
