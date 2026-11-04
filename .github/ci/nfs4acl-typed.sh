@@ -60,7 +60,14 @@ ck ok "local nfs4_getfacl through the VFS" sh -c "nfs4_getfacl $L | grep -q ':12
 ck no "unset: chmod refused without write_acl" as 1234 chmod 666 $L
 nfs4_setfacl -a A::1234:C $L
 ck ok "write_acl: a non-owner may chmod" as 1234 chmod 664 $L
-as 1234 chmod 4755 $L
+echo "aclmode=$(zfs get -H -o value aclmode tank/d), ACL after chmod 664:"; nfs4_getfacl $L
+# The default aclmode discards the ACE that gave write_acl.
+ck no "aclmode=discard: chmod took write_acl away" as 1234 chmod 755 $L
+zfs set aclmode=passthrough tank/d
+nfs4_setfacl -a A::1234:C $L
+ck ok "aclmode=passthrough: first chmod" as 1234 chmod 664 $L
+echo "ACL after passthrough chmod:"; nfs4_getfacl $L
+ck ok "aclmode=passthrough: write_acl survives chmod" as 1234 chmod 4755 $L
 [ "$(stat -c %a $L)" = 755 ] && echo "PASS: S_ISUID not given by write_acl" || echo "FAIL: mode $(stat -c %a $L)"
 ck no "chown to self refused without write_owner" as 1235 chown 1235 $L
 nfs4_setfacl -a A::1235:o $L
