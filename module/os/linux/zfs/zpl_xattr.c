@@ -1380,6 +1380,7 @@ static xattr_handler_t zpl_xattr_acl_default_handler = {
 #define	NFS4ACL_FLAGS		0xff
 #define	NFS4ACL_WHO_MAX		16
 
+#ifndef HAVE_IOPS_NFS4_ACL
 static int
 __zpl_xattr_nfs4acl_list(struct inode *ip, char *list, size_t list_size,
     const char *name, size_t name_len)
@@ -1412,6 +1413,8 @@ nfs4acl_who(const ace_t *ace, char *who)
 	}
 }
 
+#endif /* !HAVE_IOPS_NFS4_ACL */
+
 /* RFC 8881 6.2.1.5: ACE4_IDENTIFIER_GROUP is zero on special identifiers. */
 static uint32_t
 nfs4acl_flags(const ace_t *ace)
@@ -1423,6 +1426,7 @@ nfs4acl_flags(const ace_t *ace)
 	return (flags);
 }
 
+#ifndef HAVE_IOPS_NFS4_ACL
 static void
 nfs4acl_put(char **p, uint32_t val)
 {
@@ -1629,7 +1633,7 @@ __zpl_xattr_nfs4acl_set(zidmap_t *idmap, struct inode *ip, const char *name,
 }
 ZPL_XATTR_SET_WRAPPER(zpl_xattr_nfs4acl_set);
 
-#ifdef HAVE_IOPS_NFS4_ACL
+#else
 struct nfs4_acl *
 zpl_get_nfs4_acl(struct dentry *dentry, enum nfs4_acl_type type)
 {
@@ -1767,12 +1771,14 @@ zpl_set_nfs4_acl(struct dentry *dentry, enum nfs4_acl_type type,
 }
 #endif /* HAVE_IOPS_NFS4_ACL */
 
+#ifndef HAVE_IOPS_NFS4_ACL
 static xattr_handler_t zpl_xattr_nfs4acl_handler = {
 	.name	= NFS4ACL_XATTR,
 	.list	= zpl_xattr_nfs4acl_list,
 	.get	= zpl_xattr_nfs4acl_get,
 	.set	= zpl_xattr_nfs4acl_set,
 };
+#endif
 
 xattr_handler_t *zpl_xattr_handlers[] = {
 	&zpl_xattr_security_handler,
@@ -1782,7 +1788,9 @@ xattr_handler_t *zpl_xattr_handlers[] = {
 	&zpl_xattr_acl_access_handler,
 	&zpl_xattr_acl_default_handler,
 #endif /* CONFIG_FS_POSIX_ACL */
+#ifndef HAVE_IOPS_NFS4_ACL
 	&zpl_xattr_nfs4acl_handler,
+#endif
 	NULL
 };
 
@@ -1811,8 +1819,10 @@ zpl_xattr_handler(const char *name)
 		return (&zpl_xattr_acl_default_handler);
 #endif /* CONFIG_FS_POSIX_ACL */
 
+#ifndef HAVE_IOPS_NFS4_ACL
 	if (strcmp(name, NFS4ACL_XATTR) == 0)
 		return (&zpl_xattr_nfs4acl_handler);
+#endif
 
 	return (NULL);
 }

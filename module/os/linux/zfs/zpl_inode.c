@@ -780,6 +780,24 @@ zpl_permission(struct inode *ip, int mask)
 	cred_t *cr = CRED();
 	int error;
 
+#ifdef HAVE_IOPS_NFS4_ACL
+	/* setattr_prepare() asks when it would otherwise refuse. */
+	if (mask & (MAY_WRITE_ACL | MAY_WRITE_OWNER)) {
+		if (zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4)
+			return (-EACCES);
+		if (mask & MAY_NOT_BLOCK)
+			return (-ECHILD);
+		need = (mask & MAY_WRITE_ACL) ? ACE_WRITE_ACL : ACE_WRITE_OWNER;
+		crhold(cr);
+		cookie = spl_fstrans_mark();
+		error = -zfs_zaccess_idmap(zp, need, 0, B_FALSE, cr,
+		    (zidmap_t *)idmap);
+		spl_fstrans_unmark(cookie);
+		crfree(cr);
+		return (error);
+	}
+#endif
+
 	if (mask & MAY_READ)
 		need |= ACE_READ_DATA;
 	if (mask & MAY_EXEC)

@@ -48,4 +48,23 @@ if setpriv --reuid 1234 --regid 1234 --clear-groups cat $B/tank/d/f; then
 else
 	echo "FAIL: uid 1234 refused"
 fi
+
+# The xattr goes through the kernel's own handling; ZFS has no handler for it.
+L=$B/tank/d/l
+: > $L
+as() { u=$1; shift; setpriv --reuid "$u" --regid "$u" --clear-groups "$@"; }
+ck() { w=$1; d=$2; shift 2; if "$@"; then r=ok; else r=no; fi
+	if [ $r = $w ]; then echo "PASS: $d"; else echo "FAIL: $d (got $r)"; fi; }
+ck ok "local nfs4_setfacl through the VFS" nfs4_setfacl -a A::1234:r $L
+ck ok "local nfs4_getfacl through the VFS" sh -c "nfs4_getfacl $L | grep -q ':1234:'"
+ck no "unset: chmod refused without write_acl" as 1234 chmod 666 $L
+nfs4_setfacl -a A::1234:C $L
+ck ok "write_acl: a non-owner may chmod" as 1234 chmod 664 $L
+as 1234 chmod 4755 $L
+[ "$(stat -c %a $L)" = 755 ] && echo "PASS: S_ISUID not given by write_acl" || echo "FAIL: mode $(stat -c %a $L)"
+ck no "chown to self refused without write_owner" as 1235 chown 1235 $L
+nfs4_setfacl -a A::1235:o $L
+ck no "write_owner gives no chown to a third uid" as 1235 chown 1236 $L
+ck ok "write_owner takes ownership" as 1235 chown 1235 $L
+[ "$(stat -c %u $L)" = 1235 ] && echo "PASS: owner is 1235" || echo "FAIL: owner $(stat -c %u $L)"
 umount $B/a

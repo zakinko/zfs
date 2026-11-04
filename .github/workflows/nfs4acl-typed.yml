@@ -24,7 +24,7 @@ jobs:
           sudo chmod 666 /dev/kvm
       - name: Kernel
         run: |
-          git clone -q --depth 1 -b acl-typed-op-6 https://github.com/zakinko/linux.git $HOME/linux
+          git clone -q --depth 1 -b acl-typed-op-7 https://github.com/zakinko/linux.git $HOME/linux
           cd $HOME/linux
           vng --kconfig $(sed -e '/^#/d' -e '/^$/d' -e 's/^/--configitem /' .github/ci/kconfig) \
             --configitem CONFIG_MODULES=y --configitem CONFIG_ZLIB_DEFLATE=y --configitem CONFIG_ZLIB_INFLATE=y
