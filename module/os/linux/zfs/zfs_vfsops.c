@@ -160,6 +160,9 @@ acltype_changed_cb(void *arg, uint64_t newval)
 
 	switch (newval) {
 	case ZFS_ACLTYPE_NFSV4:
+		zfsvfs->z_acl_type = ZFS_ACLTYPE_NFSV4;
+		zfsvfs->z_sb->s_flags &= ~SB_POSIXACL;
+		break;
 	case ZFS_ACLTYPE_OFF:
 		zfsvfs->z_acl_type = ZFS_ACLTYPE_OFF;
 		zfsvfs->z_sb->s_flags &= ~SB_POSIXACL;
