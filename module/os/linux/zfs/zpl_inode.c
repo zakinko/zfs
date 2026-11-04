@@ -834,6 +834,10 @@ const struct inode_operations zpl_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };
 
 const struct inode_operations zpl_dir_inode_operations = {
@@ -859,6 +863,10 @@ const struct inode_operations zpl_dir_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };
 
 const struct inode_operations zpl_symlink_inode_operations = {
@@ -881,4 +889,8 @@ const struct inode_operations zpl_special_inode_operations = {
 #endif /* HAVE_GET_INODE_ACL */
 #endif /* CONFIG_FS_POSIX_ACL */
 	.permission	= zpl_permission,
+#ifdef HAVE_IOPS_NFS4_ACL
+	.get_nfs4_acl	= zpl_get_nfs4_acl,
+	.set_nfs4_acl	= zpl_set_nfs4_acl,
+#endif
 };

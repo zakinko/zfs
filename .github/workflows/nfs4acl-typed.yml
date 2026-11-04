@@ -1,0 +1,46 @@
+name: nfs4acl-typed
+on:
+  push:
+    branches: [nfs4acl-typed-op]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends build-essential bc bison flex \
+            autoconf automake libtool gawk dwarves qemu-system-x86 nfs-kernel-server acl \
+            nfs4-acl-tools libaio-dev libattr1-dev libblkid-dev libelf-dev libffi-dev \
+            libssl-dev libtirpc-dev libudev-dev uuid-dev zlib1g-dev python3-dev \
+            python3-cffi python3-setuptools python3-pip
+          sudo pip3 install --break-system-packages virtme-ng
+          sudo chmod 666 /dev/kvm
+      - name: Kernel
+        run: |
+          git clone -q --depth 1 -b acl-typed-op-6 https://github.com/zakinko/linux.git $HOME/linux
+          cd $HOME/linux
+          vng --kconfig $(sed -e '/^#/d' -e '/^$/d' -e 's/^/--configitem /' .github/ci/kconfig) \
+            --configitem CONFIG_MODULES=y --configitem CONFIG_ZLIB_DEFLATE=y --configitem CONFIG_ZLIB_INFLATE=y
+          make -s olddefconfig
+          make -s -j$(nproc) bzImage modules
+      - name: ZFS
+        run: |
+          ./autogen.sh
+          ./configure --enable-debug --with-config=all --enable-linux-experimental \
+            --with-linux=$HOME/linux --with-linux-obj=$HOME/linux > configure.log
+          grep NFS4_ACL zfs_config.h || true
+          make -s -j$(nproc)
+      - name: Test
+        run: |
+          cd $HOME/linux
+          vng --run . --user root --cpus 4 --memory 4G --rwdir /tmp \
+            --exec "sh $GITHUB_WORKSPACE/.github/ci/nfs4acl-typed.sh $GITHUB_WORKSPACE" 2>&1 | tee /tmp/typed.log
+          grep -q 'PASS:' /tmp/typed.log
+          ! grep -q 'FAIL:' /tmp/typed.log

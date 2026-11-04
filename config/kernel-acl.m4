@@ -185,11 +185,37 @@ AC_DEFUN([ZFS_AC_KERNEL_INODE_OPERATIONS_SET_ACL], [
 	])
 ])
 
+dnl #
+dnl # Inode operations for NFSv4 ACLs.
+dnl #
+AC_DEFUN([ZFS_AC_KERNEL_SRC_INODE_OPERATIONS_NFS4_ACL], [
+	ZFS_LINUX_TEST_SRC([inode_operations_nfs4_acl], [
+		#include <linux/fs.h>
+		#include <linux/nfs4.h>
+
+		static struct inode_operations iops __attribute__ ((unused));
+		static int flag __attribute__ ((unused)) = SB_I_NFS4ACL;
+	],[
+		iops.get_nfs4_acl = NULL;
+	])
+])
+
+AC_DEFUN([ZFS_AC_KERNEL_INODE_OPERATIONS_NFS4_ACL], [
+	AC_MSG_CHECKING([whether iops->get_nfs4_acl() exists])
+	ZFS_LINUX_TEST_RESULT([inode_operations_nfs4_acl], [
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_IOPS_NFS4_ACL, 1, [iops->get_nfs4_acl() exists])
+	],[
+		AC_MSG_RESULT(no)
+	])
+])
+
 AC_DEFUN([ZFS_AC_KERNEL_SRC_ACL], [
 	ZFS_AC_KERNEL_SRC_POSIX_ACL_EQUIV_MODE_WANTS_UMODE_T
 	ZFS_AC_KERNEL_SRC_POSIX_ACL_TO_XATTR_ALLOC
 	ZFS_AC_KERNEL_SRC_INODE_OPERATIONS_GET_ACL
 	ZFS_AC_KERNEL_SRC_INODE_OPERATIONS_SET_ACL
+	ZFS_AC_KERNEL_SRC_INODE_OPERATIONS_NFS4_ACL
 ])
 
 AC_DEFUN([ZFS_AC_KERNEL_ACL], [
@@ -197,4 +223,5 @@ AC_DEFUN([ZFS_AC_KERNEL_ACL], [
 	ZFS_AC_KERNEL_POSIX_ACL_TO_XATTR_ALLOC
 	ZFS_AC_KERNEL_INODE_OPERATIONS_GET_ACL
 	ZFS_AC_KERNEL_INODE_OPERATIONS_SET_ACL
+	ZFS_AC_KERNEL_INODE_OPERATIONS_NFS4_ACL
 ])
