@@ -1,7 +1,7 @@
 name: nfs4acl-typed
 on:
   push:
-    branches: [nfs4acl-typed-op]
+    branches: [linux-nfs4acl]
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

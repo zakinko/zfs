@@ -1,7 +1,7 @@
 name: linux-nfs4acl
 on:
   push:
-    branches: [linux-decoupled]
+    branches: [linux-nfs4acl]
     paths-ignore: ['**.md']
   workflow_dispatch:
 concurrency:

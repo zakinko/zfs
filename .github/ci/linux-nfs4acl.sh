@@ -1,5 +1,5 @@
 #!/bin/bash
-# acltype=nfsv4 and aclmode=decoupled on Linux.  Run as root with the module
+# acltype=nfsv4 with aclmode=passthrough on Linux.  Run as root with the module
 # loaded and zpool and zfs on PATH.  Each failure prints FAIL: and the run ends
 # non-zero.
 set -u
@@ -15,7 +15,7 @@ mode() { stat -c %a "$1"; }
 V=/var/tmp/nfs4acl.img
 truncate -s 1G $V
 zpool create -f tank $V
-zfs create -o acltype=nfsv4 -o aclmode=decoupled -o xattr=sa tank/d
+zfs create -o acltype=nfsv4 -o aclmode=passthrough -o xattr=sa tank/d
 zfs create -o acltype=nfsv4 -o aclmode=discard tank/c
 zfs create tank/off
 chmod 755 /tank/d /tank/c /tank/off
@@ -32,16 +32,19 @@ ok "uid 1234 reads through the ACL" as 1234 cat f
 no "uid 1235 still refused" as 1235 cat f
 no "uid 1234 cannot write" as 1234 sh -c 'echo x >> f'
 
-a=$(nfs4_getfacl f)
+# RFC 8881 6.4.1.1: chmod takes effect, and the mode stays what the ACL gives.
 chmod 000 f
 [ "$(mode f)" = 0 ] && pass "chmod 000 sets the mode" || fail "chmod 000 mode $(mode f)"
-[ "$(nfs4_getfacl f)" = "$a" ] && pass "chmod leaves the ACL" || fail "chmod changed the ACL"
-ok "uid 1234 reads after chmod 000" as 1234 cat f
 chmod 777 f
-no "uid 1235 refused after chmod 777" as 1235 cat f
 [ "$(mode f)" = 777 ] && pass "chmod 777 sets the mode" || fail "chmod 777 mode $(mode f)"
+ok "uid 1235 reads after chmod 777" as 1235 cat f
+chmod 640 f
+[ "$(mode f)" = 640 ] && pass "chmod 640 sets the mode" || fail "chmod 640 mode $(mode f)"
+no "uid 1235 refused after chmod 640" as 1235 cat f
+ok "named entry kept by passthrough" sh -c "nfs4_getfacl f | grep -q ':1234:'"
+ok "uid 1234 still reads" as 1234 cat f
 
-# Control: without decoupled the chmod has to rewrite the ACL.
+# Control: aclmode=discard drops the named entry where passthrough keeps it.
 cd /tank/c || exit 1
 echo data > f
 chmod 600 f
