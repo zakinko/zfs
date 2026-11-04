@@ -33,10 +33,13 @@ jobs:
       - name: ZFS
         run: |
           ./autogen.sh
+          # 7.4 has no SetPagePrivate; ZFS supports up to 7.3.  CI only.
+          sed -i -e 's/ClearPagePrivate(\([a-z_]*\))/folio_clear_private(page_folio(\1))/' \
+            -e 's/SetPagePrivate(\([a-z_]*\))/folio_set_private(page_folio(\1))/' module/os/linux/zfs/abd_os.c
           ./configure --enable-debug --with-config=all --enable-linux-experimental \
             --with-linux=$HOME/linux --with-linux-obj=$HOME/linux > configure.log
           grep NFS4_ACL zfs_config.h || true
-          make -s -j$(nproc)
+          make -k -s -j$(nproc)
       - name: Test
         run: |
           cd $HOME/linux
