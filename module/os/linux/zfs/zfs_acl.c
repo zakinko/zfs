@@ -2338,8 +2338,11 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 			break;
 		case OWNING_GROUP:
 			who = gowner;
-			zfs_fallthrough;
+			checkit = zfs_groupmember(zfsvfs, who, cr);
+			break;
 		case ACE_IDENTIFIER_GROUP:
+			who = zfs_gid_to_vfsgid(idmap, zfs_i_user_ns(ZTOI(zp)),
+			    who);
 			checkit = zfs_groupmember(zfsvfs, who, cr);
 			break;
 		case ACE_EVERYONE:
@@ -2351,6 +2354,8 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 			if (entry_type == 0) {
 				uid_t newid;
 
+				who = zfs_uid_to_vfsuid(idmap,
+				    zfs_i_user_ns(ZTOI(zp)), who);
 				newid = zfs_fuid_map_id(zfsvfs, who, cr,
 				    ZFS_ACE_USER);
 				if (newid != IDMAP_WK_CREATOR_OWNER_UID &&
@@ -2496,7 +2501,13 @@ zfs_zaccess_common(znode_t *zp, uint32_t v4_mode, uint32_t *working_mode,
 		return (SET_ERROR(EPERM));
 	}
 
-	if (zp->z_pflags & ZFS_ACL_TRIVIAL)
+	/*
+	 * ZFS_ACL_TRIVIAL says that the ACL adds nothing to the mode as far
+	 * as the kernel's own checks go.  It can still hold a DENY on a bit
+	 * the mode has no place for, so under nfsv4 the ACL decides.
+	 */
+	if ((zp->z_pflags & ZFS_ACL_TRIVIAL) &&
+	    zfsvfs->z_acl_type != ZFS_ACLTYPE_NFSV4)
 		return (zfs_zaccess_trivial(zp, working_mode, cr, idmap));
 
 	return (zfs_zaccess_aces_check(zp, working_mode, B_FALSE, cr, idmap));
