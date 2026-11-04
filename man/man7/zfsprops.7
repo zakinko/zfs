@@ -1437,6 +1437,28 @@ This was only supported by Linux prior to 5.15, and was buggy there,
 and is not supported by
 .Fx .
 On Solaris it's used for SMB clients.
+.It Sy aclownerdeny Ns = Ns Sy on Ns | Ns Sy off
+When
+.Sy on ,
+an owner refused
+.Sy write_acl
+by the ACL cannot change the ACL; a privileged user still can.
+The owner may still use
+.Xr chmod 2 .
+A deny entry for
+.Sy owner@ ,
+.Sy group@
+or
+.Sy everyone@
+does not survive a
+.Xr chmod 2
+under
+.Sy aclmode Ns = Ns Sy passthrough ,
+so name a group.
+RFC 8881 section 6.3.1.1 allows but does not require a server to grant this
+right implicitly.
+The default is
+.Sy off .
 .It Sy longname Ns = Ns Sy on Ns | Ns Sy off
 Controls support for filenames longer than 255 bytes, up to 1023 bytes.
 The default is
