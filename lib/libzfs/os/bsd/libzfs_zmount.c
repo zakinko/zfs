@@ -35,6 +35,7 @@ do_mount(zfs_handle_t *zhp, const char *mntpt, const char *opts, int flags)
 {
 	struct zfs_args za;
 	const char *spec = zfs_get_name(zhp);
+	int mflags;
 
 	assert(spec != NULL);
 	assert(mntpt != NULL);
@@ -46,8 +47,17 @@ do_mount(zfs_handle_t *zhp, const char *mntpt, const char *opts, int flags)
 	za.optlen = (int)strlen(za.optptr);
 	za.mflag = flags;
 
-	if (mount(MNTTYPE_ZFS, mntpt, flags & MS_RDONLY ? MNT_RDONLY : 0,
-	    &za, sizeof (za)) == -1)
+	mflags = flags & MS_RDONLY ? MNT_RDONLY : 0;
+	/*
+	 * Without MNT_UPDATE a remount is a second mount on the same
+	 * directory: EBUSY, and the property change never reached the
+	 * mount.  The kernel sets the rest of the flags again itself, from
+	 * the properties.
+	 */
+	if (strstr(opts, MNTOPT_REMOUNT) != NULL)
+		mflags |= MNT_UPDATE;
+
+	if (mount(MNTTYPE_ZFS, mntpt, mflags, &za, sizeof (za)) == -1)
 		return (errno);
 	return (0);
 }

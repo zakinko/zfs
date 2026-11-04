@@ -1068,7 +1068,12 @@ zfs_domount(struct mount *mp, const char *osname, const char *opts)
 
 	mp->mnt_data = zfsvfs;
 	mp->mnt_flag |= MNT_LOCAL | MNT_NFS4ACLS;
-	mp->mnt_iflag |= IMNT_MPSAFE | IMNT_DTYPE;
+	/*
+	 * readonly_changed_cb() takes a mount read-only at any time, as
+	 * "zfs set readonly=on" does; mount_update() refuses "remount,ro"
+	 * unless this says the file system can do that.
+	 */
+	mp->mnt_iflag |= IMNT_MPSAFE | IMNT_DTYPE | IMNT_CAN_RWTORO;
 	mp->mnt_stat.f_namemax =
 	    zfsvfs->z_longname ? (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
 	mp->mnt_fs_bshift = SPA_MINBLOCKSHIFT;
