@@ -1971,6 +1971,19 @@ next:
 }
 
 /*
+ * May this caller change the mode of a file whose rights are in its ACL
+ * without being able to change the ACL?  See chmodwrite in zfsprops(7).
+ */
+boolean_t
+zfs_chmodwrite_ok(znode_t *zp, cred_t *cr, zidmap_t *idmap)
+{
+	if (!ZTOZSB(zp)->z_chmodwrite || (zp->z_pflags & ZFS_ACL_TRIVIAL))
+		return (B_FALSE);
+	return (zfs_zaccess_idmap(zp, ACE_WRITE_DATA, 0, B_FALSE, cr,
+	    idmap) == 0);
+}
+
+/*
  * Set the file attributes to the values contained in the
  * vattr structure.
  *
@@ -2009,6 +2022,7 @@ zfs_setattr_idmap(znode_t *zp, vattr_t *vap, int flags, cred_t *cr,
 	uint64_t	projid = ZFS_INVALID_PROJID;
 	znode_t		*attrzp;
 	int		need_policy = FALSE;
+	boolean_t	mode_only = B_FALSE;
 	int		err, err2 = 0;
 	zfs_fuid_info_t *fuidp = NULL;
 	xvattr_t *xvap = (xvattr_t *)vap;	/* vap may be an xvattr_t * */
@@ -2327,6 +2341,16 @@ top:
 			if (err)
 				goto out3;
 			trim_mask |= ATTR_MODE;
+		} else if (zfs_chmodwrite_ok(zp, cr, idmap)) {
+			/*
+			 * The ACL decides here, and a writer without
+			 * write_acl must not change it, so only the
+			 * permission bits are stored.  Not logged: replay
+			 * would pass through zfs_acl_chmod_setattr().
+			 */
+			mode_only = B_TRUE;
+			mask &= ~ATTR_MODE;
+			vap->va_mask &= ~ATTR_MODE;
 		} else {
 			need_policy = TRUE;
 		}
@@ -2575,6 +2599,14 @@ top:
 			zfs_acl_free(zp->z_acl_cached);
 		zp->z_acl_cached = aclp;
 		aclp = NULL;
+	}
+
+	if (mode_only) {
+		new_mode = (zp->z_mode & ~(uint64_t)(S_IRWXU | S_IRWXG |
+		    S_IRWXO)) | (vap->va_mode & (S_IRWXU | S_IRWXG | S_IRWXO));
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MODE(zfsvfs), NULL,
+		    &new_mode, sizeof (new_mode));
+		zp->z_mode = ZTOI(zp)->i_mode = new_mode;
 	}
 
 	if ((mask & ATTR_ATIME) || zp->z_atime_dirty) {

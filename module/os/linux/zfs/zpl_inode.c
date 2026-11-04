@@ -478,6 +478,16 @@ ZPL_IDMAP_IOP_DEFINE(int, zpl_setattr, 2,
 	int error;
 	fstrans_cookie_t cookie;
 
+	/*
+	 * setattr_prepare() refuses a chmod by anyone but the owner before
+	 * zfs_setattr() could look at the ACL.  ATTR_FORCE skips only that
+	 * check; zfs_setattr() still decides.
+	 */
+	if ((ia->ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID | ATTR_SIZE)) ==
+	    ATTR_MODE && !zpl_inode_owner_or_capable(idmap, ip) &&
+	    zfs_chmodwrite_ok(ITOZ(ip), cr, idmap))
+		ia->ia_valid |= ATTR_FORCE;
+
 	error = zpl_setattr_prepare(idmap, dentry, ia);
 	if (error)
 		return (error);

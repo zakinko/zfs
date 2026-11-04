@@ -83,6 +83,8 @@ struct zfsvfs {
 	struct zfs_fuid_info	*z_fuid_replay; /* fuid info for replay */
 	zilog_t		*z_log;		/* intent log pointer */
 	uint_t		z_acl_mode;	/* acl chmod/mode behavior */
+	boolean_t	z_suiddir;	/* setuid directories give away files */
+	boolean_t	z_chmodwrite;	/* writers may change the mode alone */
 	uint_t		z_acl_inherit;	/* acl inheritance behavior */
 	uint_t		z_acl_type;	/* type of ACL usable on this FS */
 	zfs_case_t	z_case;		/* case-sense */

@@ -49,6 +49,7 @@ extern int zfs_rmdir(znode_t *dzp, char *name, znode_t *cwd,
 extern int zfs_readdir(struct inode *ip, struct dir_context *ctx, cred_t *cr);
 extern int zfs_getattr_fast(zidmap_t *, u32 request_mask, struct inode *ip,
     struct kstat *sp);
+extern boolean_t zfs_chmodwrite_ok(znode_t *zp, cred_t *cr, zidmap_t *idmap);
 extern int zfs_setattr(znode_t *zp, vattr_t *vap, int flag, cred_t *cr);
 extern int zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp,
     char *tnm, cred_t *cr, int flags, uint64_t rflags, vattr_t *wo_vap);

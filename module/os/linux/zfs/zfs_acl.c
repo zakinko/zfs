@@ -1847,6 +1847,22 @@ zfs_acl_ids_create(znode_t *dzp, int flag, vattr_t *vap, cred_t *cr,
 
 	acl_ids->z_fuid = vap->va_uid;
 	acl_ids->z_fgid = vap->va_gid;
+	/*
+	 * As suiddir in FreeBSD's UFS: the owner of a setuid directory,
+	 * never root, owns what is made in it.  The new owner did not
+	 * choose to run the file, hence no execute or set-id bits; a
+	 * subdirectory carries the bit on.
+	 */
+	if (zfsvfs->z_suiddir && (dzp->z_mode & S_ISUID) &&
+	    KUID_TO_SUID(ZTOI(dzp)->i_uid) != 0 && !zfsvfs->z_replay &&
+	    (flag & (IS_ROOT_NODE | IS_XATTR)) == 0) {
+		acl_ids->z_fuid = KUID_TO_SUID(ZTOI(dzp)->i_uid);
+		if (S_ISDIR(vap->va_mode))
+			acl_ids->z_mode |= S_ISUID;
+		else
+			acl_ids->z_mode &= ~(S_ISUID | S_ISGID | S_ISVTX |
+			    S_IXUSR | S_IXGRP | S_IXOTH);
+	}
 #ifdef HAVE_KSID
 	/*
 	 * Determine uid and gid.
