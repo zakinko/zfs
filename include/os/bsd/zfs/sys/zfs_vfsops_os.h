@@ -53,6 +53,7 @@ struct zfsvfs {
 	zilog_t		*z_log;		/* intent log pointer */
 	uint_t		z_acl_type;	/* type of acl usable on this fs */
 	boolean_t	z_suiddir;	/* setuid directories give away files */
+	boolean_t	z_chmodwrite;	/* writers may change the mode alone */
 	uint_t		z_acl_mode;	/* acl chmod/mode behavior */
 	uint_t		z_acl_inherit;	/* acl inheritance behavior */
 	zfs_case_t	z_case;		/* case-sense */

@@ -1392,6 +1392,24 @@ This was only supported by Linux prior to 5.15, and was buggy there,
 and is not supported by
 .Fx .
 On Solaris it's used for SMB clients.
+.It Sy chmodwrite Ns = Ns Sy on Ns | Ns Sy off
+When
+.Sy on ,
+on
+.Fx
+and
+.Nx ,
+a user who may write a file with a non-trivial ACL but lacks
+.Sy write_acl
+may change its permission bits.
+Only the mode changes; the ACL, and so what anyone may do, stays as it was, and
+set-ID and sticky bits are left alone.
+The mode of such a file need not reflect the ACL, and the change is not logged
+to the intent log.
+This lets programs that restore a mode succeed for a user who does not own the
+file, without giving that user the right to change the ACL.
+The default is
+.Sy off .
 .It Sy suiddir Ns = Ns Sy on Ns | Ns Sy off
 When
 .Sy on ,

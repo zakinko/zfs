@@ -2297,6 +2297,7 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 	uint64_t	projid = ZFS_INVALID_PROJID;
 	znode_t		*attrzp;
 	int		need_policy = FALSE;
+	boolean_t	mode_only = B_FALSE;
 	int		err, err2;
 	zfs_fuid_info_t *fuidp = NULL;
 	xvattr_t *xvap = (xvattr_t *)vap;	/* vap may be an xvattr_t * */
@@ -2604,6 +2605,19 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 				return (err);
 			}
 			trim_mask |= AT_MODE;
+		} else if (zfsvfs->z_chmodwrite &&
+		    !(zp->z_pflags & ZFS_ACL_TRIVIAL) &&
+		    zp->z_uid != crgetuid(cr) &&
+		    zfs_zaccess(zp, ACE_WRITE_DATA, 0, skipaclchk, cr) == 0) {
+			/*
+			 * The ACL decides here, and a writer without
+			 * write_acl must not change it, so only the
+			 * permission bits are stored.  Not logged: replay
+			 * would pass through zfs_acl_chmod_setattr().
+			 */
+			mode_only = B_TRUE;
+			mask &= ~AT_MODE;
+			vap->va_mask &= ~AT_MODE;
 		} else {
 			need_policy = TRUE;
 		}
@@ -2868,6 +2882,14 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 		aclp = NULL;
 	}
 
+
+	if (mode_only) {
+		new_mode = (zp->z_mode & ~(uint64_t)(S_IRWXU | S_IRWXG |
+		    S_IRWXO)) | (vap->va_mode & (S_IRWXU | S_IRWXG | S_IRWXO));
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MODE(zfsvfs), NULL,
+		    &new_mode, sizeof (new_mode));
+		zp->z_mode = new_mode;
+	}
 
 	if (mask & AT_ATIME) {
 		ZFS_TIME_ENCODE(&vap->va_atime, zp->z_atime);
