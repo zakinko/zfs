@@ -721,6 +721,9 @@ This value has effect only where
 .Sy acltype Ns = Ns Sy nfsv4
 is in use; elsewhere it behaves as
 .Sy discard .
+Note that a file system shared over NFSv4 with this value does not keep the
+mode and the ACL synchronized as RFC 8881 section 6.4 requires of a server,
+so a client may be shown a mode that does not match the ACL.
 .El
 .It Sy acltype Ns = Ns Sy off Ns | Ns Sy nfsv4 Ns | Ns Sy posix
 Controls whether ACLs are enabled and if so what type of ACL to use.
