@@ -22,6 +22,10 @@ failsafe_user = root
 failsafe = callbacks/zfs_failsafe
 tags = ['functional']
 
+[tests/functional/acl/nfsv4:Linux]
+tests = ['nfsv4_001_pos', 'nfsv4_002_pos', 'nfsv4_003_pos', 'nfsv4_004_pos']
+tags = ['functional', 'acl', 'nfsv4']
+
 [tests/functional/acl/posix:Linux]
 tests = ['posix_001_pos', 'posix_002_pos', 'posix_003_pos',
     'posix_004_pos', 'posix_005_pos']

@@ -89,7 +89,7 @@ function debian() {
     libaio-dev libattr1-dev libblkid-dev libcurl4-openssl-dev libdevmapper-dev \
     libelf-dev libffi-dev libmount-dev libpam0g-dev libselinux-dev libssl-dev \
     libtool libtool-bin libudev-dev libunwind-dev linux-headers-$(uname -r) \
-    lsscsi nfs-kernel-server pamtester parted python3 python3-all-dev \
+    lsscsi nfs-kernel-server nfs4-acl-tools pamtester parted python3 python3-all-dev \
     python3-cffi python3-dev python3-distlib python3-packaging libtirpc-dev \
     python3-setuptools python3-sphinx qemu-guest-agent rng-tools rpm2cpio \
     rsync samba strace sysstat uuid-dev watchdog wget xfslibs-dev xxhash \
@@ -134,7 +134,7 @@ function rhel() {
     gdb git jq kernel-rpm-macros ksh libacl-devel libaio-devel \
     libargon2-devel libattr-devel libblkid-devel libcurl-devel libffi-devel \
     ncompress libselinux-devel libtirpc-devel libtool libudev-devel \
-    libuuid-devel lsscsi mdadm nfs-utils openssl-devel pam-devel pamtester \
+    libuuid-devel lsscsi mdadm nfs-utils nfs4-acl-tools openssl-devel pam-devel pamtester \
     parted perf python3 python3-cffi python3-devel python3-packaging \
     kernel-devel python3-setuptools qemu-guest-agent rng-tools rpcgen \
     rpm-build rsync samba strace sysstat systemd watchdog wget xfsprogs-devel \
