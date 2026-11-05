@@ -5437,6 +5437,13 @@ const struct vnodeopv_entry_desc zfs_specop_entries[] = {
 	{ &vop_print_desc,		zfs_netbsd_print },
 	{ &vop_islocked_desc,		genfs_islocked },
 	{ &vop_bwrite_desc,		vn_bwrite },
+	{ &vop_getacl_desc,		zfs_netbsd_getacl },
+	{ &vop_setacl_desc,		zfs_netbsd_setacl },
+	{ &vop_aclcheck_desc,		zfs_netbsd_aclcheck },
+	{ &vop_getextattr_desc,		zfs_netbsd_getextattr },
+	{ &vop_setextattr_desc,		zfs_netbsd_setextattr },
+	{ &vop_listextattr_desc,		zfs_netbsd_listextattr },
+	{ &vop_deleteextattr_desc,	zfs_netbsd_deleteextattr },
 	{ NULL, NULL }
 };
 
@@ -5463,6 +5470,13 @@ const struct vnodeopv_entry_desc zfs_fifoop_entries[] = {
 	{ &vop_print_desc,		zfs_netbsd_print },
 	{ &vop_islocked_desc,		genfs_islocked },
 	{ &vop_bwrite_desc,		genfs_nullop },
+	{ &vop_getacl_desc,		zfs_netbsd_getacl },
+	{ &vop_setacl_desc,		zfs_netbsd_setacl },
+	{ &vop_aclcheck_desc,		zfs_netbsd_aclcheck },
+	{ &vop_getextattr_desc,		zfs_netbsd_getextattr },
+	{ &vop_setextattr_desc,		zfs_netbsd_setextattr },
+	{ &vop_listextattr_desc,		zfs_netbsd_listextattr },
+	{ &vop_deleteextattr_desc,	zfs_netbsd_deleteextattr },
 	{ NULL, NULL }
 };
 
