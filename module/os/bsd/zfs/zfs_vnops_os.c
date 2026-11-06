@@ -3904,14 +3904,15 @@ int zfs_xattr_compat = 1;
 int zfs_xattr_freebsd = 0;
 
 static int
-zfs_check_attrname(const char *name)
+zfs_check_attrname(int attrnamespace, const char *name)
 {
 
 	/* We don't allow '/' character in attribute name. */
 	if (strchr(name, '/') != NULL)
 		return (SET_ERROR(EINVAL));
 	/* We don't allow attribute names that start with a namespace prefix. */
-	if (ZFS_XA_NS_PREFIX_FORBIDDEN(name))
+	if (attrnamespace != EXTATTR_NAMESPACE_USER &&
+	    ZFS_XA_NS_PREFIX_FORBIDDEN(name))
 		return (SET_ERROR(EINVAL));
 	return (0);
 }
@@ -3926,7 +3927,8 @@ zfs_create_attrname(int attrnamespace, const char *name, char *attrname,
 
 	switch (attrnamespace) {
 	case EXTATTR_NAMESPACE_USER:
-		if ((zfs_xattr_compat != 0) != alt) {
+		if ((zfs_xattr_compat != 0) != alt &&
+		    !ZFS_XA_NS_PREFIX_FORBIDDEN(name)) {
 			/*
 			 * This is the default namespace by which we can access
 			 * all attributes created on Solaris.
@@ -4125,7 +4127,7 @@ zfs_netbsd_getextattr(void *v)
 	if (error != 0)
 		return (SET_ERROR(error));
 
-	error = zfs_check_attrname(ap->a_name);
+	error = zfs_check_attrname(ap->a_attrnamespace, ap->a_name);
 	if (error != 0)
 		return (error);
 
@@ -4240,7 +4242,7 @@ zfs_netbsd_deleteextattr(void *v)
 	if (error != 0)
 		return (SET_ERROR(error));
 
-	error = zfs_check_attrname(ap->a_name);
+	error = zfs_check_attrname(ap->a_attrnamespace, ap->a_name);
 	if (error != 0)
 		return (error);
 
@@ -4410,7 +4412,8 @@ zfs_setextattr_impl(struct vop_setextattr_args *ap, boolean_t alt)
 		/*
 		 * Also clear all versions of the alternate compat name.
 		 */
-		zfs_deleteextattr_impl(&vda, !alt);
+		if (!ZFS_XA_NS_PREFIX_FORBIDDEN(ap->a_name))
+			zfs_deleteextattr_impl(&vda, !alt);
 	}
 	return (error);
 }
@@ -4437,7 +4440,7 @@ zfs_netbsd_setextattr(void *v)
 	if (error != 0)
 		return (SET_ERROR(error));
 
-	error = zfs_check_attrname(ap->a_name);
+	error = zfs_check_attrname(ap->a_attrnamespace, ap->a_name);
 	if (error != 0)
 		return (error);
 
