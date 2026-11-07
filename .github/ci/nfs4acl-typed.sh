@@ -78,3 +78,24 @@ ck no "times refused without write_attributes" as 1237 touch -d 2001-01-01 $L
 nfs4_setfacl -a A::1237:T $L
 ck ok "write_attributes sets the times" as 1237 touch -d 2001-01-01 $L
 umount $B/a
+
+# Inheritance over each version, with umask 077.
+I=$B/tank/d/i; P=$B/tank/d/pl
+mkdir -m 777 $I $P
+nfs4_setfacl -a A:fd:1234:rw $I
+nfs4_setfacl -a A:fd:EVERYONE@:rwaxtTnNcCy $I
+echo "IHT: dir acl"; nfs4_getfacl $I | sed 's/^/IHT: /'
+one() { l=$1; d=$2
+	(umask 077; : > $d/i/f$l; : > $d/pl/f$l; mkdir $d/i/d$l)
+	a=no; nfs4_getfacl $I/f$l 2>/dev/null | grep -q ':1234:' && a=yes
+	r=no; setpriv --reuid 1234 --regid 1234 --clear-groups cat $I/f$l >/dev/null 2>&1 && r=yes
+	echo "IHT: $l ace=$a uid1234read=$r file=$(stat -c %a $I/f$l) dir=$(stat -c %a $I/d$l) plain=$(stat -c %a $P/f$l)"
+	nfs4_getfacl $I/f$l | sed "s/^/IHT $l: /"
+}
+one local $B/tank/d
+for v in 3 4.0 4.1 4.2; do
+	m=$B/m$v; mkdir $m
+	p=/d; [ $v = 3 ] && p=$B/tank/d
+	timeout 30 mount -t nfs -o vers=$v,nolock,actimeo=0 127.0.0.1:$p $m && one v$v $m || echo "IHT: v$v no mount"
+done
+echo "IHT: s_flags noumask probe done"
