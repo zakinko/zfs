@@ -700,6 +700,18 @@ zpool_feature_init(void)
 	}
 
 	{
+		static const spa_feature_t acl_owner_rights_deps[] = {
+			SPA_FEATURE_EXTENSIBLE_DATASET,
+			SPA_FEATURE_NONE
+		};
+		zfeature_register(SPA_FEATURE_ACL_OWNER_RIGHTS,
+		    "org.openzfs:acl_owner_rights", "acl_owner_rights",
+		    "Support for the OWNER_RIGHTS@ ACE.",
+		    ZFEATURE_FLAG_PER_DATASET | ZFEATURE_FLAG_READONLY_COMPAT,
+		    ZFEATURE_TYPE_BOOLEAN, acl_owner_rights_deps, sfeatures);
+	}
+
+	{
 		static const spa_feature_t zilsaxattr_deps[] = {
 			SPA_FEATURE_EXTENSIBLE_DATASET,
 			SPA_FEATURE_NONE

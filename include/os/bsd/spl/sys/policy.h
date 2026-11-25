@@ -51,6 +51,7 @@ int	secpolicy_vnode_access(cred_t *cr, vnode_t *vp, uid_t owner,
 int	secpolicy_vnode_access2(cred_t *cr, vnode_t *vp, uid_t owner,
 	    accmode_t curmode, accmode_t wantmode);
 int	secpolicy_vnode_any_access(cred_t *cr, vnode_t *vp, uid_t owner);
+int	secpolicy_vnode_setdac_priv(vnode_t *vp, cred_t *cr);
 int	secpolicy_vnode_setdac(vnode_t *vp, cred_t *cr, uid_t owner);
 int	secpolicy_vnode_setattr(cred_t *cr, vnode_t *vp, struct vattr *vap,
 	    const struct vattr *ovap, int flags,

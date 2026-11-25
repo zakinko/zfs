@@ -100,6 +100,13 @@ typedef struct acl_info acl_t;
 #define	ACE_OWNER			0x1000
 #define	ACE_GROUP			0x2000
 #define	ACE_EVERYONE			0x4000
+/*
+ * OWNER_RIGHTS@, draft-ietf-nfsv4-acls-update-06 8.4.3.  Always set with
+ * ACE_OWNER and left out of ACE_TYPE_FLAGS, so the ACE has the size and the
+ * matching of OWNER@ everywhere, including in a kernel that knows nothing
+ * of this bit.
+ */
+#define	ACE_OWNER_RIGHTS		0x8000
 
 #define	ACE_ACCESS_ALLOWED_ACE_TYPE	0x0000
 #define	ACE_ACCESS_DENIED_ACE_TYPE	0x0001

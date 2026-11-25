@@ -45,5 +45,6 @@ zfs_acl_node_t *zfs_acl_node_alloc(size_t);
 uint64_t zfs_mode_compute(uint64_t, zfs_acl_t *,
     uint64_t *, uint64_t, uint64_t);
 int zfs_acl_chown_setattr(struct znode *);
+boolean_t zfs_acl_owner_rights(struct znode *);
 
 #endif

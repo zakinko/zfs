@@ -652,6 +652,10 @@ recv_begin_check_feature_flags_impl(uint64_t featureflags, spa_t *spa)
 	    !spa_feature_is_enabled(spa, SPA_FEATURE_LONGNAME))
 		return (SET_ERROR(ENOTSUP));
 
+	if ((featureflags & DMU_BACKUP_FEATURE_ACL_OWNER_RIGHTS) &&
+	    !spa_feature_is_enabled(spa, SPA_FEATURE_ACL_OWNER_RIGHTS))
+		return (SET_ERROR(ENOTSUP));
+
 	return (0);
 }
 
@@ -1061,6 +1065,15 @@ dmu_recv_begin_sync(void *arg, dmu_tx_t *tx)
 		dsl_dataset_activate_feature(newds->ds_object,
 		    SPA_FEATURE_LONGNAME, (void *)B_TRUE, tx);
 		newds->ds_feature[SPA_FEATURE_LONGNAME] = (void *)B_TRUE;
+	}
+
+	if (featureflags & DMU_BACKUP_FEATURE_ACL_OWNER_RIGHTS &&
+	    !dsl_dataset_feature_is_active(newds,
+	    SPA_FEATURE_ACL_OWNER_RIGHTS)) {
+		dsl_dataset_activate_feature(newds->ds_object,
+		    SPA_FEATURE_ACL_OWNER_RIGHTS, (void *)B_TRUE, tx);
+		newds->ds_feature[SPA_FEATURE_ACL_OWNER_RIGHTS] =
+		    (void *)B_TRUE;
 	}
 
 	if (featureflags & DMU_BACKUP_FEATURE_LARGE_MICROZAP &&

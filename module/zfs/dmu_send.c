@@ -2029,6 +2029,11 @@ setup_featureflags(struct dmu_send_params *dspp, objset_t *os,
 		*featureflags |= DMU_BACKUP_FEATURE_LONGNAME;
 	}
 
+	if (dsl_dataset_feature_is_active(to_ds,
+	    SPA_FEATURE_ACL_OWNER_RIGHTS)) {
+		*featureflags |= DMU_BACKUP_FEATURE_ACL_OWNER_RIGHTS;
+	}
+
 	if (dsl_dataset_feature_is_active(to_ds, SPA_FEATURE_LARGE_MICROZAP)) {
 		/*
 		 * We must never split a large microzap block, so we can only

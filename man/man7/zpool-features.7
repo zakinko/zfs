@@ -332,6 +332,22 @@ are destroyed.
 .Sh FEATURES
 The following features are supported on this system:
 .Bl -tag -width Ds
+.feature org.openzfs acl_owner_rights yes extensible_dataset
+This feature allows an ACL to hold OWNER_RIGHTS@ entries, which grant rights
+to the owner of the file as owner@ does, and cancel the
+.Sy read_acl
+and
+.Sy write_acl
+the owner would otherwise hold without any entry.
+A system without this feature would read them as owner@ entries.
+.Pp
+This feature becomes
+.Sy active
+the first time such an ACL is set on a dataset.
+It will only be returned to the
+.Sy enabled
+state when all datasets that ever had one are destroyed.
+.
 .feature org.zfsonlinux allocation_classes yes
 This feature enables support for separate allocation classes.
 .Pp

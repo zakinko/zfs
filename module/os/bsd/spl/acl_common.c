@@ -339,6 +339,9 @@ ace_trivial_common(void *acep, int aclcnt,
 	uintptr_t cookie = 0;
 
 	while ((cookie = walk(acep, cookie, aclcnt, &flags, &type, &mask))) {
+		if (flags & ACE_OWNER_RIGHTS)
+			return (1);
+
 		switch (flags & ACE_TYPE_FLAGS) {
 		case ACE_OWNER:
 		case ACE_GROUP|ACE_IDENTIFIER_GROUP:

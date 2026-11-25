@@ -43,6 +43,10 @@
 #include <sys/dnode.h>
 #include <sys/zap.h>
 #include <sys/sa.h>
+#include <sys/dsl_dataset.h>
+#include <sys/dmu_objset.h>
+#include <sys/spa.h>
+#include <sys/zfeature.h>
 #include <acl/acl_common.h>
 
 
@@ -68,6 +72,21 @@
 #define	WRITE_MASK_ATTRS (ACE_WRITE_ACL|ACE_WRITE_OWNER|ACE_WRITE_ATTRIBUTES| \
     ACE_DELETE|ACE_DELETE_CHILD)
 #define	WRITE_MASK (WRITE_MASK_DATA|WRITE_MASK_ATTRS)
+
+/*
+ * What OWNER_RIGHTS@ cancels.  draft-ietf-nfsv4-acls-update-06 8.4.3 takes
+ * the set from acmi_defown (8.3.15), and without ACL_Choice (5.9), which
+ * this server does not offer, says a client can assume these two.
+ *
+ * The other things the owner gets here without an ACE, read_attributes,
+ * write_attributes and write_owner, stay: they are outside that set.
+ *
+ * 8.3.9 puts SETATTR of mode under ACE4_WRITE_ACL, so the owner's chmod
+ * goes with write_acl: zfs_setattr() refuses it unless the ACL grants
+ * write_acl or the caller is privileged.  What a chmod that is allowed does
+ * to the ACE is in zfs_acl_chmod().
+ */
+#define	OWNER_RIGHTS_MASK (ACE_READ_ACL|ACE_WRITE_ACL)
 
 #define	OGE_CLEAR	(ACE_READ_DATA|ACE_LIST_DIRECTORY|ACE_WRITE_DATA| \
     ACE_ADD_FILE|ACE_APPEND_DATA|ACE_ADD_SUBDIRECTORY|ACE_EXECUTE)
@@ -505,6 +524,9 @@ static boolean_t
 zfs_acl_valid_ace_type(uint_t type, uint_t flags)
 {
 	uint16_t entry_type;
+
+	if ((flags & ACE_OWNER_RIGHTS) && (flags & ACE_TYPE_FLAGS) != ACE_OWNER)
+		return (B_FALSE);
 
 	switch (type) {
 	case ALLOW:
@@ -1314,7 +1336,7 @@ zfs_aclset_common(znode_t *zp, zfs_acl_t *aclp, cred_t *cr, dmu_tx_t *tx)
 
 static void
 zfs_acl_chmod(vtype_t vtype, uint64_t mode, boolean_t split, boolean_t trim,
-    zfs_acl_t *aclp)
+    boolean_t discard, zfs_acl_t *aclp)
 {
 	void		*acep = NULL;
 	uint64_t	who;
@@ -1327,6 +1349,7 @@ zfs_acl_chmod(vtype_t vtype, uint64_t mode, boolean_t split, boolean_t trim,
 	size_t 		abstract_size = aclp->z_ops->ace_abstract_size();
 	void 		*zacep;
 	boolean_t	isdir;
+	boolean_t	owner_rights = B_FALSE;
 	trivial_acl_t	masks;
 
 	new_count = new_bytes = 0;
@@ -1361,12 +1384,29 @@ zfs_acl_chmod(vtype_t vtype, uint64_t mode, boolean_t split, boolean_t trim,
 	    &iflags, &type))) {
 		entry_type = (iflags & ACE_TYPE_FLAGS);
 		/*
+		 * OWNER_RIGHTS@ is not one of the who values the mode is
+		 * made of, and draft-ietf-nfsv4-acls-update-06 10.7.1 leaves
+		 * the effect of the other special values unmodified.  If it
+		 * went here, a chmod by root or by a holder of write_acl
+		 * would hand the owner the cancelled rights back.  It does count as OWNER@ in the mode
+		 * computed from the ACL, which RFC 8881 6.4.1.1 requires to
+		 * equal the mode set, so it gives up the bits of the mode.
+		 */
+		if (iflags & ACE_OWNER_RIGHTS) {
+			if (!(iflags & ACE_INHERIT_ONLY_ACE))
+				access_mask &= ~OGE_CLEAR;
+			owner_rights = B_TRUE;
+		} else if (discard) {
+			continue;
+		}
+		/*
 		 * ACEs used to represent the file mode may be divided
 		 * into an equivalent pair of inherit-only and regular
 		 * ACEs, if they are inheritable.
 		 * Skip regular ACEs, which are replaced by the new mode.
 		 */
-		if (split && (entry_type == ACE_OWNER ||
+		if (split && !(iflags & ACE_OWNER_RIGHTS) &&
+		    (entry_type == ACE_OWNER ||
 		    entry_type == OWNING_GROUP ||
 		    entry_type == ACE_EVERYONE)) {
 			if (!isdir || !(iflags &
@@ -1408,7 +1448,8 @@ zfs_acl_chmod(vtype_t vtype, uint64_t mode, boolean_t split, boolean_t trim,
 			 * Applies when the "aclmode" property is set to
 			 * "groupmask".
 			 */
-			if ((type == ALLOW) && trim)
+			if ((type == ALLOW) && trim &&
+			    !(iflags & ACE_OWNER_RIGHTS))
 				access_mask &= masks.group;
 		}
 		zfs_set_ace(aclp, zacep, access_mask, type, who, iflags);
@@ -1417,6 +1458,9 @@ zfs_acl_chmod(vtype_t vtype, uint64_t mode, boolean_t split, boolean_t trim,
 		new_count++;
 		new_bytes += ace_size;
 	}
+	/* An OWNER@ made from the mode must not grant what was cancelled. */
+	if (owner_rights)
+		masks.owner &= ~OWNER_RIGHTS_MASK;
 	zfs_set_ace(aclp, zacep, masks.owner, ALLOW, -1, ACE_OWNER);
 	zacep = (void *)((uintptr_t)zacep + abstract_size);
 	zfs_set_ace(aclp, zacep, masks.group, ALLOW, -1, OWNING_GROUP);
@@ -1437,11 +1481,13 @@ int
 zfs_acl_chmod_setattr(znode_t *zp, zfs_acl_t **aclp, uint64_t mode)
 {
 	int error = 0;
+	boolean_t discard;
 
 	mutex_enter(&zp->z_acl_lock);
 	if (zp->z_zfsvfs->z_replay == B_FALSE)
 		ASSERT_VOP_ELOCKED(ZTOV(zp), __func__);
-	if (zp->z_zfsvfs->z_acl_mode == ZFS_ACL_DISCARD)
+	discard = (zp->z_zfsvfs->z_acl_mode == ZFS_ACL_DISCARD);
+	if (discard && (zp->z_pflags & ZFS_ACL_TRIVIAL))
 		*aclp = zfs_acl_alloc(zfs_acl_version_zp(zp));
 	else
 		error = zfs_acl_node_read(zp, B_TRUE, aclp, B_TRUE);
@@ -1449,7 +1495,8 @@ zfs_acl_chmod_setattr(znode_t *zp, zfs_acl_t **aclp, uint64_t mode)
 	if (error == 0) {
 		(*aclp)->z_hints = zp->z_pflags & V4_ACL_WIDE_FLAGS;
 		zfs_acl_chmod(ZTOV(zp)->v_type, mode, B_TRUE,
-		    (zp->z_zfsvfs->z_acl_mode == ZFS_ACL_GROUPMASK), *aclp);
+		    (zp->z_zfsvfs->z_acl_mode == ZFS_ACL_GROUPMASK), discard,
+		    *aclp);
 	}
 	mutex_exit(&zp->z_acl_lock);
 
@@ -1522,6 +1569,7 @@ zfs_acl_inherit(zfsvfs_t *zfsvfs, vtype_t vtype, zfs_acl_t *paclp,
 		 */
 		if ((aclinherit == ZFS_ACL_PASSTHROUGH ||
 		    aclinherit == ZFS_ACL_PASSTHROUGH_X) &&
+		    !(iflags & ACE_OWNER_RIGHTS) &&
 		    ((iflags & (ACE_OWNER|ACE_EVERYONE)) ||
 		    ((iflags & OWNING_GROUP) == OWNING_GROUP)) &&
 		    (isreg || (isdir && (iflags & ACE_DIRECTORY_INHERIT_ACE))))
@@ -1726,7 +1774,7 @@ zfs_acl_ids_create(znode_t *dzp, int flag, vattr_t *vap, cred_t *cr,
 			    zfsvfs->z_acl_inherit != ZFS_ACL_PASSTHROUGH_X)
 				trim = B_TRUE;
 			zfs_acl_chmod(vap->va_type, acl_ids->z_mode, B_FALSE,
-			    trim, acl_ids->z_aclp);
+			    trim, B_FALSE, acl_ids->z_aclp);
 		}
 	}
 
@@ -1874,6 +1922,10 @@ zfs_vsec_2_aclp(zfsvfs_t *zfsvfs, umode_t obj_type,
 	zfs_acl_node_t *aclnode;
 	int aclcnt = vsecp->vsa_aclcnt;
 	int error;
+	void *acep = NULL;
+	uint64_t who;
+	uint32_t access_mask;
+	uint16_t iflags, type;
 
 	if (vsecp->vsa_aclcnt > MAX_ACL_ENTRIES || vsecp->vsa_aclcnt <= 0)
 		return (SET_ERROR(EINVAL));
@@ -1903,6 +1955,25 @@ zfs_vsec_2_aclp(zfsvfs_t *zfsvfs, umode_t obj_type,
 	aclnode->z_ace_count = aclcnt;
 	aclp->z_acl_count = aclcnt;
 	list_insert_head(&aclp->z_acl, aclnode);
+
+	/*
+	 * A kernel without the feature reads OWNER_RIGHTS@ as OWNER@ and
+	 * loses what it cancels, so it may only be written under the feature.
+	 */
+	while ((acep = zfs_acl_next_ace(aclp, acep, &who, &access_mask,
+	    &iflags, &type))) {
+		if (!(iflags & ACE_OWNER_RIGHTS))
+			continue;
+		if (!spa_feature_is_enabled(dmu_objset_spa(zfsvfs->z_os),
+		    SPA_FEATURE_ACL_OWNER_RIGHTS)) {
+			zfs_acl_free(aclp);
+			return (SET_ERROR(ENOTSUP));
+		}
+		dmu_objset_ds(zfsvfs->z_os)->
+		    ds_feature_activation[SPA_FEATURE_ACL_OWNER_RIGHTS] =
+		    (void *)B_TRUE;
+		break;
+	}
 
 	/*
 	 * If flags are being set then add them to z_hints
@@ -2211,6 +2282,44 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 	return (0);
 }
 
+/*
+ * Does an OWNER_RIGHTS@ ACE apply to this object?  It cancels by being there,
+ * whatever its type and mask (draft-ietf-nfsv4-acls-update-06 8.4.3), so this
+ * can't be learnt from zfs_zaccess_aces_check(), which stops at the first
+ * ACE that settles the request.  An inherit-only ACE on a directory is not in
+ * effect, as there.
+ */
+boolean_t
+zfs_acl_owner_rights(znode_t *zp)
+{
+	zfs_acl_t	*aclp;
+	void		*acep = NULL;
+	uint64_t	who;
+	uint32_t	access_mask;
+	uint16_t	iflags, type;
+	boolean_t	found = B_FALSE;
+
+	if (zp->z_pflags & ZFS_ACL_TRIVIAL)
+		return (B_FALSE);
+
+	mutex_enter(&zp->z_acl_lock);
+	if (zfs_acl_node_read(zp, B_TRUE, &aclp, B_FALSE) != 0) {
+		mutex_exit(&zp->z_acl_lock);
+		return (B_TRUE);
+	}
+	while ((acep = zfs_acl_next_ace(aclp, acep, &who, &access_mask,
+	    &iflags, &type))) {
+		if ((iflags & ACE_OWNER_RIGHTS) && (type == ALLOW ||
+		    type == DENY) && !(ZTOV(zp)->v_type == VDIR &&
+		    (iflags & ACE_INHERIT_ONLY_ACE))) {
+			found = B_TRUE;
+			break;
+		}
+	}
+	mutex_exit(&zp->z_acl_lock);
+	return (found);
+}
+
 static int
 zfs_zaccess_common(znode_t *zp, uint32_t v4_mode, uint32_t *working_mode,
     boolean_t *check_privs, boolean_t skipaclchk, cred_t *cr)
@@ -2325,6 +2434,8 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 	znode_t 	*check_zp = zp;
 	mode_t		needed_bits;
 	uid_t		owner;
+	uint32_t	implicit;	/* read rights the owner has by default */
+	boolean_t	owner_rights = B_FALSE;
 
 	is_attr = ((zp->z_pflags & ZFS_XATTR) && (ZTOV(zp)->v_type == VDIR));
 
@@ -2379,10 +2490,13 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 	 */
 	needed_bits = 0;
 
+	if ((mode & OWNER_RIGHTS_MASK) && owner == crgetuid(cr))
+		owner_rights = zfs_acl_owner_rights(check_zp);
+	implicit = ACE_READ_ATTRIBUTES | (owner_rights ? 0 : ACE_READ_ACL);
+
 	working_mode = mode;
-	if ((working_mode & (ACE_READ_ACL|ACE_READ_ATTRIBUTES)) &&
-	    owner == crgetuid(cr))
-		working_mode &= ~(ACE_READ_ACL|ACE_READ_ATTRIBUTES);
+	if ((working_mode & implicit) && owner == crgetuid(cr))
+		working_mode &= ~implicit;
 
 	if (working_mode & (ACE_READ_DATA|ACE_READ_NAMED_ATTRS|
 	    ACE_READ_ACL|ACE_READ_ATTRIBUTES|ACE_SYNCHRONIZE))
@@ -2422,9 +2536,8 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 
 		ASSERT3U(working_mode, !=, 0);
 
-		if ((working_mode & (ACE_READ_ACL|ACE_READ_ATTRIBUTES) &&
-		    owner == crgetuid(cr)))
-			working_mode &= ~(ACE_READ_ACL|ACE_READ_ATTRIBUTES);
+		if ((working_mode & implicit) && owner == crgetuid(cr))
+			working_mode &= ~implicit;
 
 		if (working_mode & (ACE_READ_DATA|ACE_READ_NAMED_ATTRS|
 		    ACE_READ_ACL|ACE_READ_ATTRIBUTES|ACE_SYNCHRONIZE))
@@ -2440,8 +2553,15 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 
 		if (error == 0 && (working_mode & ACE_WRITE_OWNER))
 			error = secpolicy_vnode_chown(check_vp, cr, owner);
+		/*
+		 * Privilege is not a default right of the owner and is not
+		 * cancelled; RFC 8881 6.3.1.1 has the superuser beyond the
+		 * ACL.  That also keeps the ACL changeable by someone.
+		 */
 		if (error == 0 && (working_mode & ACE_WRITE_ACL))
-			error = secpolicy_vnode_setdac(check_vp, cr, owner);
+			error = owner_rights ?
+			    secpolicy_vnode_setdac_priv(check_vp, cr) :
+			    secpolicy_vnode_setdac(check_vp, cr, owner);
 
 		if (error == 0 && (working_mode &
 		    (ACE_DELETE|ACE_DELETE_CHILD)))

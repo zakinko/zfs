@@ -31,6 +31,15 @@
 #include_next <sys/acl.h>
 #define	_SYS_ACL_H
 
+/*
+ * The acl(3) tag for OWNER_RIGHTS@ (draft-ietf-nfsv4-acls-update-06 8.4.3).
+ * NetBSD's <sys/acl.h> does not have it yet; the value is the next free
+ * tag bit, as in the FreeBSD prototype, and is tentative.
+ */
+#ifndef ACL_OWNER_RIGHTS
+#define	ACL_OWNER_RIGHTS	0x00000080
+#endif
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -104,6 +113,13 @@ typedef struct ace {
 #define	ACE_OWNER			0x1000
 #define	ACE_GROUP			0x2000
 #define	ACE_EVERYONE			0x4000
+/*
+ * OWNER_RIGHTS@, draft-ietf-nfsv4-acls-update-06 8.4.3.  Always set with
+ * ACE_OWNER and left out of ACE_TYPE_FLAGS, so the ACE has the size and the
+ * matching of OWNER@ everywhere, including in a kernel that knows nothing
+ * of this bit.
+ */
+#define	ACE_OWNER_RIGHTS		0x8000
 
 #define	ACE_ACCESS_ALLOWED_ACE_TYPE	0x0000
 #define	ACE_ACCESS_DENIED_ACE_TYPE	0x0001

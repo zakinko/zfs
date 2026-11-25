@@ -2369,6 +2369,20 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 				return (err);
 			}
 			trim_mask |= AT_MODE;
+		} else if (zfs_fuid_map_id(zfsvfs, zp->z_uid, cr,
+		    ZFS_OWNER) == crgetuid(cr) && zfs_acl_owner_rights(zp)) {
+			/*
+			 * OWNER_RIGHTS@ has cancelled the owner's write_acl
+			 * (draft-ietf-nfsv4-acls-update-06 8.4.3), and the
+			 * mode is set under write_acl (8.3.9).  Without this
+			 * secpolicy_vnode_setattr() would let the owner in.
+			 */
+			err = secpolicy_vnode_setdac_priv(vp, cr);
+			if (err) {
+				zfs_exit(zfsvfs, FTAG);
+				return (err);
+			}
+			need_policy = TRUE;
 		} else {
 			need_policy = TRUE;
 		}
@@ -5286,6 +5300,36 @@ zfs_netbsd_getacl(void *v)
 	return (error);
 }
 
+/*
+ * acl_nfs4_check() in the kernel refuses any tag it does not know, and
+ * NetBSD's does not know ACL_OWNER_RIGHTS (draft-ietf-nfsv4-acls-update-06
+ * 8.4.3).  Such an entry has the shape of ACL_USER_OBJ, so check a copy
+ * in which it is one.
+ */
+static int
+zfs_netbsd_acl_check(const struct acl *aclp, int is_directory)
+{
+	struct acl *copy;
+	int i, error;
+
+	for (i = 0; i < aclp->acl_cnt; i++) {
+		if (aclp->acl_entry[i].ae_tag == ACL_OWNER_RIGHTS)
+			break;
+	}
+	if (i == aclp->acl_cnt)
+		return (acl_nfs4_check(aclp, is_directory));
+
+	copy = kmem_alloc(sizeof (*copy), KM_SLEEP);
+	memcpy(copy, aclp, sizeof (*copy));
+	for (i = 0; i < copy->acl_cnt; i++) {
+		if (copy->acl_entry[i].ae_tag == ACL_OWNER_RIGHTS)
+			copy->acl_entry[i].ae_tag = ACL_USER_OBJ;
+	}
+	error = acl_nfs4_check(copy, is_directory);
+	kmem_free(copy, sizeof (*copy));
+	return (error);
+}
+
 static int
 zfs_netbsd_setacl(void *v)
 {
@@ -5306,7 +5350,7 @@ zfs_netbsd_setacl(void *v)
 	 */
 	if (ap->a_aclp->acl_cnt * 2 + 6 > ACL_MAX_ENTRIES)
 		return (SET_ERROR(ENOSPC));
-	if ((error = acl_nfs4_check(ap->a_aclp,
+	if ((error = zfs_netbsd_acl_check(ap->a_aclp,
 	    ap->a_vp->v_type == VDIR)) != 0)
 		return (error);
 

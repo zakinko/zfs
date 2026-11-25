@@ -128,7 +128,9 @@ acl_from_aces(struct acl *aclp, const ace_t *aces, int nentries)
 		entry = &(aclp->acl_entry[i]);
 		ace = &(aces[i]);
 
-		if (ace->a_flags & ACE_OWNER)
+		if (ace->a_flags & ACE_OWNER_RIGHTS)
+			entry->ae_tag = ACL_OWNER_RIGHTS;
+		else if (ace->a_flags & ACE_OWNER)
 			entry->ae_tag = ACL_USER_OBJ;
 		else if (ace->a_flags & ACE_GROUP)
 			entry->ae_tag = ACL_GROUP_OBJ;
@@ -187,6 +189,8 @@ aces_from_acl(ace_t *aces, int *nentries, const struct acl *aclp)
 
 		if (entry->ae_tag == ACL_USER_OBJ)
 			ace->a_flags = ACE_OWNER;
+		else if (entry->ae_tag == ACL_OWNER_RIGHTS)
+			ace->a_flags = ACE_OWNER | ACE_OWNER_RIGHTS;
 		else if (entry->ae_tag == ACL_GROUP_OBJ)
 			ace->a_flags = (ACE_GROUP | ACE_IDENTIFIER_GROUP);
 		else if (entry->ae_tag == ACL_GROUP)

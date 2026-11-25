@@ -166,16 +166,24 @@ secpolicy_vnode_any_access(cred_t *cr, vnode_t *vp, uid_t owner)
 }
 
 /* Changing the mode or the ACL, which the owner may. */
+/* secpolicy_vnode_setdac() without the owner's default right. */
+int
+secpolicy_vnode_setdac_priv(vnode_t *vp, cred_t *cr)
+{
+
+	if (secpolicy_fs_owner(vp->v_mount, cr) == 0)
+		return (0);
+	return (kauth_authorize_vnode(cr, KAUTH_VNODE_WRITE_SECURITY, vp, NULL,
+	    EPERM));
+}
+
 int
 secpolicy_vnode_setdac(vnode_t *vp, cred_t *cr, uid_t owner)
 {
 
 	if (owner == kauth_cred_geteuid(cr))
 		return (0);
-	if (secpolicy_fs_owner(vp->v_mount, cr) == 0)
-		return (0);
-	return (kauth_authorize_vnode(cr, KAUTH_VNODE_WRITE_SECURITY, vp, NULL,
-	    EPERM));
+	return (secpolicy_vnode_setdac_priv(vp, cr));
 }
 
 int
